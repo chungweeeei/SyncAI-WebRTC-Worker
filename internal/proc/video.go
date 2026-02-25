@@ -25,15 +25,15 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipelin
 			"! nvv4l2h264enc bitrate=4000000 insert-sps-pps=true "+
 			"! h264parse "+
 			"! rtph264pay config-interval=1 pt=96 "+
-			"! udpsink host=127.0.0.1 port=%d sync=false"+
+			"! udpsink host=127.0.0.1 port=%d sync=false "+
 			"alsasrc device=hw:0,0 "+
 			"! audioconvert "+
 			"! audioresample "+
-			"! audio/x-raw,rate=48000,channels=1 "+
+			"! audio/x-raw,rate=48000,channels=2 "+
 			"! queue "+
 			"! opusenc bitrate=64000 "+
 			"! rtpopuspay pt=111 "+
-			"! udpsink host=127.0.0.1 port=%d sync=false",
+			"! udpsink host=127.0.0.1 port=%d sync=false ",
 		videoPort, audioPort)
 
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("gst-launch-1.0 -v %s", pipeline))

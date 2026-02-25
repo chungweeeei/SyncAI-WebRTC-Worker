@@ -78,7 +78,7 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	}
 
 	// Audio track
-	audioCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 1}
+	audioCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(audioCodec, "audio", "gstreamer-audio")
 	if err != nil {
 		pc.Close()
