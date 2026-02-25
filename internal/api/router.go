@@ -25,8 +25,8 @@ func NewRouter(app *config.AppConfig) *gin.Engine {
 	router.POST("/audio/whip", handleAudioWHIP)
 	router.DELETE("/audio/whip/:id", deleteAudioWHIP)
 
-	router.POST("/video/whep")
-	router.DELETE("/video/whep/:id")
+	router.POST("/video/whep", handleVideoWHEP)
+	router.DELETE("/video/whep/:id", deleteVideoWHEP)
 
 	return router
 }

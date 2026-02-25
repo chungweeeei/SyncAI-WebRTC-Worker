@@ -7,14 +7,14 @@ import (
 	"sync"
 )
 
-type GStreamerPipeline struct {
+type AudioGStreamerPipeline struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	mu     sync.Mutex
 	closed bool
 }
 
-func NewGStreamerPipeline(port int) (*GStreamerPipeline, error) {
+func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
 
 	// GStreamer pipeline: 接收 RTP Opus → 解碼 → 播放
 	pipeline := fmt.Sprintf(
@@ -32,13 +32,13 @@ func NewGStreamerPipeline(port int) (*GStreamerPipeline, error) {
 		return nil, fmt.Errorf("failed to start GStreamer pipeline: %w", err)
 	}
 
-	return &GStreamerPipeline{
+	return &AudioGStreamerPipeline{
 		cmd: cmd,
 	}, nil
 }
 
 // Close 關閉 pipeline
-func (g *GStreamerPipeline) Close() error {
+func (g *AudioGStreamerPipeline) Close() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 

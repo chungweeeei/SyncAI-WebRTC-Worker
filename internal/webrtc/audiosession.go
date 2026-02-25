@@ -12,7 +12,7 @@ import (
 type AudioSession struct {
 	ID        string
 	PC        *webrtc.PeerConnection
-	GStreamer *proc.GStreamerPipeline
+	GStreamer *proc.AudioGStreamerPipeline
 	udpConn   *net.UDPConn
 	mu        sync.Mutex
 }
@@ -51,7 +51,7 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 		port = 5004 // default RTP port
 	}
 
-	gst, err := proc.NewGStreamerPipeline(port)
+	gst, err := proc.NewAudioGStreamerPipeline(port)
 	if err != nil {
 		pc.Close()
 		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)

@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync"
 
+	"SyncAI-WebRTC-Worker/internal/proc"
+
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
@@ -25,23 +27,18 @@ var (
 
 type VideoSessionOptions struct {
 	RTPListenPort int
-	VideoCodec    string // "vp8", "vp9", "h264"
 }
 
 // CreateVideoSession 建立 WHEP video session
-// WHEP: 客戶端發送 offer，伺服器回應 answer
 func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, string, error) {
 	if opts.RTPListenPort == 0 {
 		opts.RTPListenPort = 5006 // default RTP port for video
 	}
-	if opts.VideoCodec == "" {
-		opts.VideoCodec = "h264" // default video codec
-	}
 
 	// setting MediaEngine 支援指定的 codec
 	mediaEngine := &webrtc.MediaEngine{}
-	if err := registerVideoCodec(mediaEngine, opts.VideoCodec); err != nil {
-		return "", "", fmt.Errorf("failed to register video codec: %w", err)
+	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
+		return "", "", fmt.Errorf("failed to register codecs: %w", err)
 	}
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
@@ -62,15 +59,14 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	}
 
 	// Video track
-	codecCapbility := getCodecCapability(opts.VideoCodec)
-	videoTrack, err := webrtc.NewTrackLocalStaticRTP(codecCapbility, "video", "gstreamer")
+	codecCapability := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}
+	videoTrack, err := webrtc.NewTrackLocalStaticRTP(codecCapability, "video", "gstreamer")
 	if err != nil {
 		pc.Close()
 		return "", "", fmt.Errorf("failed to create video track: %w", err)
 	}
 	session.videoTrack = videoTrack
 
-	// 加入 Track 到 PeerConnection
 	if _, err := pc.AddTrack(videoTrack); err != nil {
 		pc.Close()
 		return "", "", fmt.Errorf("failed to add video track: %w", err)
@@ -81,6 +77,14 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		pc.Close()
 		return "", "", err
 	}
+
+	// 啟動 GStreamer pipeline
+	gst, err := proc.NewVideoGStreamerPipeline(opts.RTPListenPort)
+	if err != nil {
+		session.Close()
+		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
+	}
+	session.GStreamer = gst
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		fmt.Printf("Video session %s: %s\n", sessionID, state.String())
@@ -96,19 +100,19 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	offer := webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offerSDP}
 	if err := pc.SetRemoteDescription(offer); err != nil {
 		session.Close()
-		return "", "", err
+		return "", "", fmt.Errorf("failed to set remote description: %w", err)
 	}
 
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
 		session.Close()
-		return "", "", err
+		return "", "", fmt.Errorf("failed to create answer: %w", err)
 	}
 
 	gatherComplete := webrtc.GatheringCompletePromise(pc)
 	if err := pc.SetLocalDescription(answer); err != nil {
 		session.Close()
-		return "", "", err
+		return "", "", fmt.Errorf("failed to set local description: %w", err)
 	}
 	<-gatherComplete
 
@@ -118,53 +122,6 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	videoSessionsMu.Unlock()
 
 	return sessionID, pc.LocalDescription().SDP, nil
-}
-
-func registerVideoCodec(m *webrtc.MediaEngine, codec string) error {
-	switch codec {
-	case "vp8":
-		return m.RegisterCodec(webrtc.RTPCodecParameters{
-			RTPCodecCapability: webrtc.RTPCodecCapability{
-				MimeType:    webrtc.MimeTypeVP8,
-				ClockRate:   90000,
-				SDPFmtpLine: "",
-			},
-			PayloadType: 96,
-		}, webrtc.RTPCodecTypeVideo)
-	case "vp9":
-		return m.RegisterCodec(webrtc.RTPCodecParameters{
-			RTPCodecCapability: webrtc.RTPCodecCapability{
-				MimeType:    webrtc.MimeTypeVP9,
-				ClockRate:   90000,
-				SDPFmtpLine: "profile-id=0",
-			},
-			PayloadType: 96,
-		}, webrtc.RTPCodecTypeVideo)
-	case "h264":
-		return m.RegisterCodec(webrtc.RTPCodecParameters{
-			RTPCodecCapability: webrtc.RTPCodecCapability{
-				MimeType:    webrtc.MimeTypeH264,
-				ClockRate:   90000,
-				SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f",
-			},
-			PayloadType: 102,
-		}, webrtc.RTPCodecTypeVideo)
-	default:
-		return m.RegisterDefaultCodecs()
-	}
-}
-
-func getCodecCapability(codec string) webrtc.RTPCodecCapability {
-	switch codec {
-	case "vp8":
-		return webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}
-	case "vp9":
-		return webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP9, ClockRate: 90000}
-	case "h264":
-		return webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}
-	default:
-		return webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}
-	}
 }
 
 func (s *VideoSession) startRTPListener(port int) error {
@@ -232,6 +189,9 @@ func (s *VideoSession) Close() {
 
 	fmt.Printf("Video session %s: closing\n", s.ID)
 
+	if s.GStreamer != nil {
+		s.GStreamer.Close()
+	}
 	if s.udpListener != nil {
 		s.udpListener.Close()
 	}
@@ -239,7 +199,6 @@ func (s *VideoSession) Close() {
 		s.PC.Close()
 	}
 
-	// 從 map 中移除
 	videoSessionsMu.Lock()
 	delete(videoSessions, s.ID)
 	videoSessionsMu.Unlock()

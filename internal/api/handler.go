@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"SyncAI-WebRTC-Worker/internal/transport"
@@ -91,7 +92,7 @@ func deleteAudioWHIP(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func handleVideoWhep(c *gin.Context) {
+func handleVideoWHEP(c *gin.Context) {
 	contentType := c.GetHeader("Content-Type")
 	if contentType != "application/sdp" {
 		c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "Invalid Content-Type"})
@@ -106,11 +107,11 @@ func handleVideoWhep(c *gin.Context) {
 
 	opts := rtc.VideoSessionOptions{
 		RTPListenPort: 5006,
-		VideoCodec:    "H264",
 	}
 
 	sessionID, answerSDP, err := rtc.CreateVideoSession(string(offerSDP), opts)
 	if err != nil {
+		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create WebRTC session"})
 		return
 	}
@@ -120,7 +121,7 @@ func handleVideoWhep(c *gin.Context) {
 	c.String(http.StatusCreated, answerSDP)
 }
 
-func deleteVideoWhep(c *gin.Context) {
+func deleteVideoWHEP(c *gin.Context) {
 	sessionID := c.Param("id")
 
 	if err := rtc.DeleteVideoSession(sessionID); err != nil {
