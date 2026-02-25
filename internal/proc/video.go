@@ -16,24 +16,26 @@ type VideoGStreamerPipeline struct {
 
 func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipeline, error) {
 	pipeline := fmt.Sprintf(
-		"v4l2src device=/dev/syncai_camera "+
+		"v4l2src device=/dev/syncai_camera do-timestamp=true "+
 			"! videoconvert "+
 			"! video/x-raw,width=640,height=480,framerate=30/1 "+
-			"! queue "+
+			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 "+
 			"! nvvidconv "+
 			"! 'video/x-raw(memory:NVMM),format=NV12' "+
 			"! nvv4l2h264enc bitrate=4000000 insert-sps-pps=true "+
 			"! h264parse "+
 			"! rtph264pay config-interval=1 pt=96 "+
-			"! udpsink host=127.0.0.1 port=%d sync=false "+
-			"alsasrc device=hw:0,0 "+
+			"! identity sync=true "+
+			"! udpsink host=127.0.0.1 port=%d "+
+			"alsasrc device=hw:0,0 do-timestamp=true "+
 			"! audioconvert "+
 			"! audioresample "+
 			"! audio/x-raw,rate=48000,channels=2 "+
-			"! queue "+
+			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 "+
 			"! opusenc bitrate=64000 "+
 			"! rtpopuspay pt=111 "+
-			"! udpsink host=127.0.0.1 port=%d sync=false ",
+			"! identity sync=true "+
+			"! udpsink host=127.0.0.1 port=%d ",
 		videoPort, audioPort)
 
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("gst-launch-1.0 -v %s", pipeline))
