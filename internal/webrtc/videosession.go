@@ -5,15 +5,16 @@ import (
 	"net"
 	"sync"
 
-	"SyncAI-WebRTC-Worker/internal/proc"
-
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
+
+	"SyncAI-WebRTC-Worker/internal/proc"
 )
 
 type VideoSession struct {
 	ID          string
 	PC          *webrtc.PeerConnection
+	GStreamer   *proc.VideoGStreamerPipeline
 	videoTrack  *webrtc.TrackLocalStaticRTP
 	udpListener *net.UDPConn
 	mu          sync.Mutex
@@ -26,16 +27,15 @@ var (
 )
 
 type VideoSessionOptions struct {
-	RTPListenPort int
+	RTPPort int
 }
 
 // CreateVideoSession 建立 WHEP video session
 func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, string, error) {
-	if opts.RTPListenPort == 0 {
-		opts.RTPListenPort = 5006 // default RTP port for video
+	if opts.RTPPort == 0 {
+		opts.RTPPort = 5006 // default RTP port for video
 	}
 
-	// setting MediaEngine 支援指定的 codec
 	mediaEngine := &webrtc.MediaEngine{}
 	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
 		return "", "", fmt.Errorf("failed to register codecs: %w", err)
@@ -73,26 +73,26 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	}
 
 	// 啟動 UDP 監聽接收 GStreamer RTP
-	if err := session.startRTPListener(opts.RTPListenPort); err != nil {
+	if err := session.startRTPListener(opts.RTPPort); err != nil {
 		pc.Close()
 		return "", "", err
 	}
 
 	// 啟動 GStreamer pipeline
-	gst, err := proc.NewVideoGStreamerPipeline(opts.RTPListenPort)
+	gst, err := proc.NewVideoGStreamerPipeline(opts.RTPPort)
 	if err != nil {
 		session.Close()
 		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
 	}
 	session.GStreamer = gst
+	fmt.Printf("Video session %s: GStreamer pipeline started\n", sessionID)
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		fmt.Printf("Video session %s: %s\n", sessionID, state.String())
 
 		if state == webrtc.PeerConnectionStateClosed ||
-			state == webrtc.PeerConnectionStateFailed ||
-			state == webrtc.PeerConnectionStateDisconnected {
-			session.Close()
+			state == webrtc.PeerConnectionStateFailed {
+			go session.Close()
 		}
 	})
 
@@ -169,6 +169,7 @@ func (s *VideoSession) startRTPListener(port int) error {
 				continue
 			}
 
+			// fmt.Printf("Video session %s: received RTP packet, size=%d\n", s.ID, n)
 			if err := s.videoTrack.WriteRTP(rtpPacket); err != nil {
 				fmt.Printf("Video session %s: WriteRTP error: %v\n", s.ID, err)
 			}
@@ -180,18 +181,15 @@ func (s *VideoSession) startRTPListener(port int) error {
 
 func (s *VideoSession) Close() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
+		s.mu.Unlock()
 		return
 	}
 	s.closed = true
+	s.mu.Unlock()
 
 	fmt.Printf("Video session %s: closing\n", s.ID)
 
-	if s.GStreamer != nil {
-		s.GStreamer.Close()
-	}
 	if s.udpListener != nil {
 		s.udpListener.Close()
 	}
@@ -202,6 +200,8 @@ func (s *VideoSession) Close() {
 	videoSessionsMu.Lock()
 	delete(videoSessions, s.ID)
 	videoSessionsMu.Unlock()
+
+	fmt.Printf("Video session %s: closed\n", s.ID)
 }
 
 func DeleteVideoSession(sessionID string) error {

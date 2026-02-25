@@ -22,8 +22,7 @@ func NewVideoGStreamerPipeline(port int) (*VideoGStreamerPipeline, error) {
 		"! nvv4l2h264enc bitrate=4000000 insert-sps-pps=true " +
 		"! h264parse " +
 		"! rtph264pay config-interval=1 pt=96 " +
-		"! udpsink host=127.0.0.1 port=5006 sync=false " +
-		"! udpsink host=127.0.0.1 port=5007 sync=false"
+		"! udpsink host=127.0.0.1 port=5006 sync=false"
 
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("gst-launch-1.0 -v %s", pipeline))
 
