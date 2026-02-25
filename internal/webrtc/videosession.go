@@ -12,13 +12,15 @@ import (
 )
 
 type VideoSession struct {
-	ID          string
-	PC          *webrtc.PeerConnection
-	GStreamer   *proc.VideoGStreamerPipeline
-	videoTrack  *webrtc.TrackLocalStaticRTP
-	udpListener *net.UDPConn
-	mu          sync.Mutex
-	closed      bool
+	ID               string
+	PC               *webrtc.PeerConnection
+	GStreamer        *proc.VideoGStreamerPipeline
+	videoTrack       *webrtc.TrackLocalStaticRTP
+	audioTrack       *webrtc.TrackLocalStaticRTP
+	videoUDPListener *net.UDPConn
+	audioUDPListener *net.UDPConn
+	mu               sync.Mutex
+	closed           bool
 }
 
 var (
@@ -27,13 +29,16 @@ var (
 )
 
 type VideoSessionOptions struct {
-	RTPPort int
+	VideoRTPPort int
+	AudioRTPPort int
 }
 
-// CreateVideoSession 建立 WHEP video session
 func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, string, error) {
-	if opts.RTPPort == 0 {
-		opts.RTPPort = 5006 // default RTP port for video
+	if opts.VideoRTPPort == 0 {
+		opts.VideoRTPPort = 5006 // default RTP port for video
+	}
+	if opts.AudioRTPPort == 0 {
+		opts.AudioRTPPort = 5007 // default RTP port for audio
 	}
 
 	mediaEngine := &webrtc.MediaEngine{}
@@ -59,8 +64,8 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	}
 
 	// Video track
-	codecCapability := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}
-	videoTrack, err := webrtc.NewTrackLocalStaticRTP(codecCapability, "video", "gstreamer")
+	videoCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}
+	videoTrack, err := webrtc.NewTrackLocalStaticRTP(videoCodec, "video", "gstreamer-video")
 	if err != nil {
 		pc.Close()
 		return "", "", fmt.Errorf("failed to create video track: %w", err)
@@ -72,14 +77,34 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		return "", "", fmt.Errorf("failed to add video track: %w", err)
 	}
 
-	// 啟動 UDP 監聽接收 GStreamer RTP
-	if err := session.startRTPListener(opts.RTPPort); err != nil {
+	// Audio track
+	audioCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 1}
+	audioTrack, err := webrtc.NewTrackLocalStaticRTP(audioCodec, "audio", "gstreamer-audio")
+	if err != nil {
+		pc.Close()
+		return "", "", fmt.Errorf("failed to create audio track: %w", err)
+	}
+	session.audioTrack = audioTrack
+
+	if _, err := pc.AddTrack(audioTrack); err != nil {
+		pc.Close()
+		return "", "", fmt.Errorf("failed to add audio track: %w", err)
+	}
+
+	// 啟動 Video UDP listener
+	if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
 		pc.Close()
 		return "", "", err
 	}
 
+	// 啟動 Audio UDP listener
+	if err := session.startRTPListener(opts.AudioRTPPort, session.audioTrack, &session.audioUDPListener, "audio"); err != nil {
+		session.Close()
+		return "", "", err
+	}
+
 	// 啟動 GStreamer pipeline
-	gst, err := proc.NewVideoGStreamerPipeline(opts.RTPPort)
+	gst, err := proc.NewVideoGStreamerPipeline(opts.VideoRTPPort, opts.AudioRTPPort)
 	if err != nil {
 		session.Close()
 		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
@@ -124,23 +149,23 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	return sessionID, pc.LocalDescription().SDP, nil
 }
 
-func (s *VideoSession) startRTPListener(port int) error {
+func (s *VideoSession) startRTPListener(port int, track *webrtc.TrackLocalStaticRTP, conn **net.UDPConn, trackType string) error {
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return err
 	}
 
-	conn, err := net.ListenUDP("udp", addr)
+	udpConn, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on UDP port %d: %w", port, err)
 	}
-	s.udpListener = conn
+	*conn = udpConn
 
-	if err := conn.SetReadBuffer(1024 * 1024); err != nil {
+	if err := udpConn.SetReadBuffer(1024 * 1024); err != nil {
 		return fmt.Errorf("failed to set UDP read buffer: %w", err)
 	}
 
-	fmt.Printf("Video session %s: listening for RTP on port %d\n", s.ID, port)
+	fmt.Printf("Video session %s: listening for %s RTP on port %d\n", s.ID, trackType, port)
 
 	go func() {
 		buf := make([]byte, 1500)
@@ -154,24 +179,23 @@ func (s *VideoSession) startRTPListener(port int) error {
 				return
 			}
 
-			n, _, err := conn.ReadFromUDP(buf)
+			n, _, err := udpConn.ReadFromUDP(buf)
 			if err != nil {
 				s.mu.Lock()
 				closed = s.closed
 				s.mu.Unlock()
 				if !closed {
-					fmt.Printf("Video session %s: UDP read error: %v\n", s.ID, err)
+					fmt.Printf("Video session %s: %s UDP read error: %v\n", s.ID, trackType, err)
 				}
 				return
 			}
 			if err := rtpPacket.Unmarshal(buf[:n]); err != nil {
-				fmt.Printf("Video session %s: RTP unmarshal error: %v\n", s.ID, err)
+				fmt.Printf("Video session %s: %s RTP unmarshal error: %v\n", s.ID, trackType, err)
 				continue
 			}
 
-			// fmt.Printf("Video session %s: received RTP packet, size=%d\n", s.ID, n)
-			if err := s.videoTrack.WriteRTP(rtpPacket); err != nil {
-				fmt.Printf("Video session %s: WriteRTP error: %v\n", s.ID, err)
+			if err := track.WriteRTP(rtpPacket); err != nil {
+				fmt.Printf("Video session %s: %s WriteRTP error: %v\n", s.ID, trackType, err)
 			}
 		}
 	}()
@@ -190,8 +214,14 @@ func (s *VideoSession) Close() {
 
 	fmt.Printf("Video session %s: closing\n", s.ID)
 
-	if s.udpListener != nil {
-		s.udpListener.Close()
+	if s.GStreamer != nil {
+		s.GStreamer.Close()
+	}
+	if s.videoUDPListener != nil {
+		s.videoUDPListener.Close()
+	}
+	if s.audioUDPListener != nil {
+		s.audioUDPListener.Close()
 	}
 	if s.PC != nil {
 		s.PC.Close()

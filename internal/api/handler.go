@@ -106,7 +106,8 @@ func handleVideoWHEP(c *gin.Context) {
 	}
 
 	opts := rtc.VideoSessionOptions{
-		RTPPort: 5006,
+		VideoRTPPort: 5006,
+		AudioRTPPort: 5007,
 	}
 
 	sessionID, answerSDP, err := rtc.CreateVideoSession(string(offerSDP), opts)

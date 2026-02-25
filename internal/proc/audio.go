@@ -3,8 +3,10 @@ package proc
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 )
 
 type AudioGStreamerPipeline struct {
@@ -27,6 +29,12 @@ func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
 	)
 
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("gst-launch-1.0 -v %s", pipeline))
+	cmd.Stderr = os.Stderr
+
+	// setup process group so we can kill the entire pipeline if needed
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start GStreamer pipeline: %w", err)
@@ -37,7 +45,6 @@ func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
 	}, nil
 }
 
-// Close 關閉 pipeline
 func (g *AudioGStreamerPipeline) Close() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -49,7 +56,11 @@ func (g *AudioGStreamerPipeline) Close() error {
 	}
 
 	if g.cmd != nil && g.cmd.Process != nil {
-		return g.cmd.Process.Kill()
+		pgid, err := syscall.Getpgid(g.cmd.Process.Pid)
+		if err == nil {
+			syscall.Kill(-pgid, syscall.SIGTERM)
+		}
+		g.cmd.Wait()
 	}
 	return nil
 }
