@@ -7,10 +7,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/go-gst/go-gst/gst"
 )
 
 func main() {
+	// Initialize GStreamer
+	gst.Init(nil)
 
+	// Initialize API and start server
 	app := config.NewAppConfig()
 
 	go listenForErrors(app)

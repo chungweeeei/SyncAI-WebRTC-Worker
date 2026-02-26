@@ -2,20 +2,19 @@ package proc
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"sync"
-	"syscall"
+
+	"github.com/go-gst/go-gst/gst"
 )
 
 type VideoGStreamerPipeline struct {
-	cmd    *exec.Cmd
-	mu     sync.Mutex
-	closed bool
+	pipeline *gst.Pipeline
+	mu       sync.Mutex
+	closed   bool
 }
 
 func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipeline, error) {
-	pipeline := fmt.Sprintf(
+	pipelineStr := fmt.Sprintf(
 		"v4l2src device=/dev/syncai_camera do-timestamp=true "+
 			"! videoconvert "+
 			"! video/x-raw,width=640,height=480,framerate=30/1 "+
@@ -38,20 +37,17 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipelin
 			"! udpsink host=127.0.0.1 port=%d ",
 		videoPort, audioPort)
 
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("gst-launch-1.0 -v %s", pipeline))
-	cmd.Stderr = os.Stderr
-
-	// setup process group so we can kill the entire pipeline if needed
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
+	pipeline, err := gst.NewPipelineFromString(pipelineStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GStreamer pipeline: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start GStreamer video pipeline: %w", err)
+	if err := pipeline.SetState(gst.StatePlaying); err != nil {
+		return nil, fmt.Errorf("failed to start GStreamer pipeline: %w", err)
 	}
 
 	return &VideoGStreamerPipeline{
-		cmd: cmd,
+		pipeline: pipeline,
 	}, nil
 }
 
@@ -64,12 +60,10 @@ func (g *VideoGStreamerPipeline) Close() error {
 	}
 
 	g.closed = true
-	if g.cmd != nil && g.cmd.Process != nil {
-		pgid, err := syscall.Getpgid(g.cmd.Process.Pid)
-		if err == nil {
-			syscall.Kill(-pgid, syscall.SIGTERM)
-		}
-		g.cmd.Wait()
+	if g.pipeline != nil {
+		g.pipeline.SetState(gst.StateNull)
+		g.pipeline.Unref()
 	}
+
 	return nil
 }

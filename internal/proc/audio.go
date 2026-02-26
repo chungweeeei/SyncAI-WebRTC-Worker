@@ -3,23 +3,22 @@ package proc
 import (
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"sync"
-	"syscall"
+
+	"github.com/go-gst/go-gst/gst"
 )
 
 type AudioGStreamerPipeline struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	mu     sync.Mutex
-	closed bool
+	pipeline *gst.Pipeline
+	stdin    io.WriteCloser
+	mu       sync.Mutex
+	closed   bool
 }
 
 func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
 
 	// GStreamer pipeline: 接收 RTP Opus → 解碼 → 播放
-	pipeline := fmt.Sprintf(
+	pipelineStr := fmt.Sprintf(
 		"udpsrc port=%d caps=\"application/x-rtp,media=audio,encoding-name=OPUS,payload=111\" "+
 			"! rtpopusdepay "+
 			"! opusdec "+
@@ -28,20 +27,17 @@ func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
 		port,
 	)
 
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("gst-launch-1.0 -v %s", pipeline))
-	cmd.Stderr = os.Stderr
-
-	// setup process group so we can kill the entire pipeline if needed
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
+	pipeline, err := gst.NewPipelineFromString(pipelineStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GStreamer pipeline: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := pipeline.SetState(gst.StatePlaying); err != nil {
 		return nil, fmt.Errorf("failed to start GStreamer pipeline: %w", err)
 	}
 
 	return &AudioGStreamerPipeline{
-		cmd: cmd,
+		pipeline: pipeline,
 	}, nil
 }
 
@@ -55,12 +51,9 @@ func (g *AudioGStreamerPipeline) Close() error {
 		g.stdin.Close()
 	}
 
-	if g.cmd != nil && g.cmd.Process != nil {
-		pgid, err := syscall.Getpgid(g.cmd.Process.Pid)
-		if err == nil {
-			syscall.Kill(-pgid, syscall.SIGTERM)
-		}
-		g.cmd.Wait()
+	if g.pipeline != nil {
+		g.pipeline.SetState(gst.StateNull)
+		g.pipeline.Unref()
 	}
 	return nil
 }
