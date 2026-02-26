@@ -29,11 +29,11 @@ func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
 
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GStreamer pipeline: %w", err)
+		return nil, err
 	}
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
-		return nil, fmt.Errorf("failed to start GStreamer pipeline: %w", err)
+		return nil, err
 	}
 
 	return &AudioGStreamerPipeline{

@@ -20,7 +20,7 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipelin
 			"! video/x-raw,width=640,height=480,framerate=30/1 "+
 			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 "+
 			"! nvvidconv "+
-			"! 'video/x-raw(memory:NVMM),format=NV12' "+
+			"! video/x-raw(memory:NVMM),format=NV12 "+
 			"! nvv4l2h264enc bitrate=4000000 insert-sps-pps=true "+
 			"! h264parse "+
 			"! rtph264pay config-interval=1 pt=96 "+
@@ -34,16 +34,16 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipelin
 			"! opusenc bitrate=64000 "+
 			"! rtpopuspay pt=111 "+
 			"! identity sync=true "+
-			"! udpsink host=127.0.0.1 port=%d ",
+			"! udpsink host=127.0.0.1 port=%d",
 		videoPort, audioPort)
 
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GStreamer pipeline: %w", err)
+		return nil, err
 	}
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
-		return nil, fmt.Errorf("failed to start GStreamer pipeline: %w", err)
+		return nil, err
 	}
 
 	return &VideoGStreamerPipeline{

@@ -3,6 +3,7 @@ package main
 import (
 	"SyncAI-WebRTC-Worker/internal/api"
 	"SyncAI-WebRTC-Worker/internal/config"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 func main() {
 	// Initialize GStreamer
 	gst.Init(nil)
+	fmt.Println("GStreamer initialized successfully")
 
 	// Initialize API and start server
 	app := config.NewAppConfig()
