@@ -1,13 +1,14 @@
 package api
 
 import (
+	"SyncAI-WebRTC-Worker/internal/api/handlers"
 	"SyncAI-WebRTC-Worker/internal/config"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(app *config.AppConfig) *gin.Engine {
+func NewRouter(app *config.AppConfig, gCfg *config.GStreamerConfig) *gin.Engine {
 
 	router := gin.Default()
 	router.Use(gin.Logger())
@@ -19,14 +20,16 @@ func NewRouter(app *config.AppConfig) *gin.Engine {
 		AllowCredentials: true,
 	}))
 
-	router.POST("/control/whip", handleControlWHIP)
-	router.DELETE("/control/whip/:id", deleteControlWHIP)
+	h := handlers.NewHandler(app, gCfg)
 
-	router.POST("/audio/whip", handleAudioWHIP)
-	router.DELETE("/audio/whip/:id", deleteAudioWHIP)
+	router.POST("/control/whip", h.HandleControlWHIP)
+	router.DELETE("/control/whip/:id", h.DeleteControlWHIP)
 
-	router.POST("/video/whep", handleVideoWHEP)
-	router.DELETE("/video/whep/:id", deleteVideoWHEP)
+	router.POST("/audio/whip", h.HandleAudioWHIP)
+	router.DELETE("/audio/whip/:id", h.DeleteAudioWHIP)
+
+	router.POST("/video/whep", h.HandleVideoWHEP)
+	router.DELETE("/video/whep/:id", h.DeleteVideoWHEP)
 
 	return router
 }

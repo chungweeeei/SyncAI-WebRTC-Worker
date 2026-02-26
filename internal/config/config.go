@@ -2,6 +2,8 @@ package config
 
 import (
 	"log"
+	"os"
+	"strconv"
 )
 
 type AppConfig struct {
@@ -35,4 +37,59 @@ func (app *AppConfig) Shutdown() {
 	app.InfoLog.Println("closing channels and shutting down application...")
 	close(app.ErrorChan)
 	close(app.ErrorDoneChan)
+}
+
+type VideoSourceType string
+
+const (
+	VideoSourceCamera VideoSourceType = "camera" // received image data directly from /dev/video0
+	VideoSourceROS    VideoSourceType = "ros"    // received image data from udp src which is published by ROS node
+)
+
+type GStreamerConfig struct {
+	AudioRTPPort      int
+	VideoRTPPort      int
+	VideoAudioRTPPort int
+	VideoSource       VideoSourceType
+}
+
+func NewGStreamerConfig() *GStreamerConfig {
+	audioPort, err := strconv.Atoi(getEnv("AUDIO_RTP_PORT", "5004"))
+	if err != nil {
+		// audio port use default value if conversion fails
+		audioPort = 5004
+	}
+
+	videoPort, err := strconv.Atoi(getEnv("VIDEO_RTP_PORT", "5006"))
+	if err != nil {
+		// video port use default value if conversion fails
+		videoPort = 5006
+	}
+
+	videoAudioPort, err := strconv.Atoi(getEnv("VIDEO_AUDIO_RTP_PORT", "5007"))
+	if err != nil {
+		// video audio port use default value if conversion fails
+		videoAudioPort = 5007
+	}
+
+	return &GStreamerConfig{
+		AudioRTPPort:      audioPort,
+		VideoRTPPort:      videoPort,
+		VideoAudioRTPPort: videoAudioPort,
+		VideoSource:       detectVideoSource(),
+	}
+}
+
+func getEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return defaultValue
+}
+
+func detectVideoSource() VideoSourceType {
+	if _, err := os.Stat("/dev/syncai_camera"); err == nil {
+		return VideoSourceCamera
+	}
+	return VideoSourceROS
 }

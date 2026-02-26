@@ -8,6 +8,7 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
+	"SyncAI-WebRTC-Worker/internal/config"
 	"SyncAI-WebRTC-Worker/internal/proc"
 )
 
@@ -31,15 +32,10 @@ var (
 type VideoSessionOptions struct {
 	VideoRTPPort int
 	AudioRTPPort int
+	VideoSource  config.VideoSourceType
 }
 
 func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, string, error) {
-	if opts.VideoRTPPort == 0 {
-		opts.VideoRTPPort = 5006 // default RTP port for video
-	}
-	if opts.AudioRTPPort == 0 {
-		opts.AudioRTPPort = 5007 // default RTP port for audio
-	}
 
 	mediaEngine := &webrtc.MediaEngine{}
 	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
@@ -91,26 +87,33 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		return "", "", fmt.Errorf("failed to add audio track: %w", err)
 	}
 
-	// 啟動 Video UDP listener
-	if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
+	switch opts.VideoSource {
+	case config.VideoSourceCamera:
+		if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
+			pc.Close()
+			return "", "", err
+		}
+
+		if err := session.startRTPListener(opts.AudioRTPPort, session.audioTrack, &session.audioUDPListener, "audio"); err != nil {
+			session.Close()
+			return "", "", err
+		}
+
+		gst, err := proc.NewVideoGStreamerPipeline(opts.VideoRTPPort, opts.AudioRTPPort)
+		if err != nil {
+			session.Close()
+			return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
+		}
+		session.GStreamer = gst
+	case config.VideoSourceROS:
+		if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
+			pc.Close()
+			return "", "", err
+		}
+	default:
 		pc.Close()
-		return "", "", err
+		return "", "", fmt.Errorf("unsupported video source type: %s", opts.VideoSource)
 	}
-
-	// 啟動 Audio UDP listener
-	if err := session.startRTPListener(opts.AudioRTPPort, session.audioTrack, &session.audioUDPListener, "audio"); err != nil {
-		session.Close()
-		return "", "", err
-	}
-
-	// 啟動 GStreamer pipeline
-	gst, err := proc.NewVideoGStreamerPipeline(opts.VideoRTPPort, opts.AudioRTPPort)
-	if err != nil {
-		session.Close()
-		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
-	}
-	session.GStreamer = gst
-	fmt.Printf("Video session %s: GStreamer pipeline started\n", sessionID)
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		fmt.Printf("Video session %s: %s\n", sessionID, state.String())
@@ -121,7 +124,6 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		}
 	})
 
-	// SDP 交換
 	offer := webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offerSDP}
 	if err := pc.SetRemoteDescription(offer); err != nil {
 		session.Close()
@@ -141,7 +143,6 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	}
 	<-gatherComplete
 
-	// 儲存 session
 	videoSessionsMu.Lock()
 	videoSessions[sessionID] = session
 	videoSessionsMu.Unlock()

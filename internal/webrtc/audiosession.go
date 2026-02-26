@@ -47,10 +47,6 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 	}
 
 	port := opts.RTPPort
-	if port == 0 {
-		port = 5004 // default RTP port
-	}
-
 	gst, err := proc.NewAudioGStreamerPipeline(port)
 	if err != nil {
 		pc.Close()
