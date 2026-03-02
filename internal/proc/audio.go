@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"SyncAI-WebRTC-Worker/internal/config"
 	"fmt"
 	"io"
 	"sync"
@@ -15,7 +16,7 @@ type AudioGStreamerPipeline struct {
 	closed   bool
 }
 
-func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
+func NewAudioGStreamerPipeline(port int, cfg config.AudioConfig) (*AudioGStreamerPipeline, error) {
 
 	// GStreamer pipeline: 接收 RTP Opus → 解碼 → 播放
 	pipelineStr := fmt.Sprintf(
@@ -23,8 +24,10 @@ func NewAudioGStreamerPipeline(port int) (*AudioGStreamerPipeline, error) {
 			"! rtpopusdepay "+
 			"! opusdec "+
 			"! audioconvert "+
-			"! autoaudiosink",
-		port,
+			"! volume volume=%f "+
+			"! audioresample "+
+			"! alsasink device=hw:%d,%d",
+		port, cfg.AudioVolume, cfg.AudioCard, cfg.AudioDevice,
 	)
 
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)

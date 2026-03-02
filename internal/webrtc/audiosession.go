@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"SyncAI-WebRTC-Worker/internal/config"
 	"SyncAI-WebRTC-Worker/internal/proc"
 	"fmt"
 	"net"
@@ -23,7 +24,8 @@ var (
 )
 
 type AudioSessionOptions struct {
-	RTPPort int // UDP port for GStreamer
+	RTPPort  int // UDP port for GStreamer
+	AudioCfg config.AudioConfig
 }
 
 func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, string, error) {
@@ -31,7 +33,7 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 		webrtc.Configuration{
 			ICEServers: []webrtc.ICEServer{
 				{
-					URLs: []string{"stun:stun.l.google.com:19302"},
+					URLs: []string{},
 				},
 			},
 		},
@@ -47,13 +49,14 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 	}
 
 	port := opts.RTPPort
-	gst, err := proc.NewAudioGStreamerPipeline(port)
+	gst, err := proc.NewAudioGStreamerPipeline(port, opts.AudioCfg)
 	if err != nil {
 		pc.Close()
 		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
 	}
 	session.GStreamer = gst
 
+	// listen for incoming audio track
 	addr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", port))
 	udpConn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {

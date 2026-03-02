@@ -26,7 +26,7 @@ func (h *Handler) HandleControlWHIP(c *gin.Context) {
 	}
 
 	opts := rtc.SessionOptions{
-		WebSocketURL: "ws://127.0.0.1:9090",
+		WebSocketURL: "ws://host.docker.internal:9090",
 		Dialer:       transport.NewWebSocketDialer(),
 	}
 

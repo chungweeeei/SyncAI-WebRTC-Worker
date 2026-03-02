@@ -46,11 +46,18 @@ const (
 	VideoSourceROS    VideoSourceType = "ros"    // received image data from udp src which is published by ROS node
 )
 
+type AudioConfig struct {
+	AudioCard   int
+	AudioDevice int
+	AudioVolume float64
+}
+
 type GStreamerConfig struct {
 	AudioRTPPort      int
 	VideoRTPPort      int
 	VideoAudioRTPPort int
 	VideoSource       VideoSourceType
+	AudioConfig       AudioConfig
 }
 
 func NewGStreamerConfig() *GStreamerConfig {
@@ -72,11 +79,31 @@ func NewGStreamerConfig() *GStreamerConfig {
 		videoAudioPort = 5007
 	}
 
+	audioCard, err := strconv.Atoi(getEnv("AUDIO_CARD", "0"))
+	if err != nil {
+		audioCard = 0
+	}
+
+	audioDevice, err := strconv.Atoi(getEnv("AUDIO_DEVICE", "0"))
+	if err != nil {
+		audioDevice = 0
+	}
+
+	audioVolume, err := strconv.ParseFloat(getEnv("AUDIO_VOLUME", "0.2"), 64)
+	if err != nil {
+		audioVolume = 0.2
+	}
+
 	return &GStreamerConfig{
 		AudioRTPPort:      audioPort,
 		VideoRTPPort:      videoPort,
 		VideoAudioRTPPort: videoAudioPort,
-		VideoSource:       detectVideoSource(),
+		VideoSource:       VideoSourceROS,
+		AudioConfig: AudioConfig{
+			AudioCard:   audioCard,
+			AudioDevice: audioDevice,
+			AudioVolume: audioVolume,
+		},
 	}
 }
 

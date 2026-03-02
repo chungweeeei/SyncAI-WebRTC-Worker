@@ -2,6 +2,7 @@ package handlers
 
 import (
 	rtc "SyncAI-WebRTC-Worker/internal/webrtc"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -22,10 +23,12 @@ func (h *Handler) HandleAudioWHIP(c *gin.Context) {
 	}
 
 	opts := rtc.AudioSessionOptions{
-		RTPPort: h.GStreamerCfg.AudioRTPPort,
+		RTPPort:  h.GStreamerCfg.AudioRTPPort,
+		AudioCfg: h.GStreamerCfg.AudioConfig,
 	}
 	sessionID, answerSDP, err := rtc.CreateAudioSession(string(offerSDP), opts)
 	if err != nil {
+		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create audio session"})
 		return
 	}

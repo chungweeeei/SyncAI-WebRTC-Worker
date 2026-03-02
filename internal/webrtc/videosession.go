@@ -46,7 +46,7 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
+			{URLs: []string{}},
 		},
 	})
 	if err != nil {
@@ -190,6 +190,8 @@ func (s *VideoSession) startRTPListener(port int, track *webrtc.TrackLocalStatic
 				}
 				return
 			}
+
+			fmt.Println("Received RTP packet:", n, "bytes")
 			if err := rtpPacket.Unmarshal(buf[:n]); err != nil {
 				fmt.Printf("Video session %s: %s RTP unmarshal error: %v\n", s.ID, trackType, err)
 				continue
