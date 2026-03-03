@@ -35,7 +35,6 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipelin
 			"! udpsink host=127.0.0.1 port=%d sync=true",
 		videoPort, audioPort)
 
-	fmt.Println(pipelineStr)
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
 		return nil, err

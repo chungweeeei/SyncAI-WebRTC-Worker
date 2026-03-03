@@ -98,7 +98,7 @@ func NewGStreamerConfig() *GStreamerConfig {
 		AudioRTPPort:      audioPort,
 		VideoRTPPort:      videoPort,
 		VideoAudioRTPPort: videoAudioPort,
-		VideoSource:       VideoSourceCamera,
+		VideoSource:       detectVideoSource(),
 		AudioConfig: AudioConfig{
 			AudioCard:   audioCard,
 			AudioDevice: audioDevice,
