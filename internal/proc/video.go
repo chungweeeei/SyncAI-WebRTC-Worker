@@ -18,14 +18,24 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipelin
 		"v4l2src device=/dev/syncai_camera do-timestamp=true "+
 			"! videoconvert "+
 			"! video/x-raw,width=640,height=480,framerate=30/1 "+
-			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 "+
-			"! x264enc tune=zerolatency bitrate=4000 speed-preset=ultrafast key-int-max=30 "+
+			"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 leaky=downstream "+
+			"! nvvidconv "+
+			"! video/x-raw(memory:NVMM),format=NV12 "+
+			"! nvv4l2h264enc bitrate=4000000 insert-sps-pps=true "+
 			"! h264parse "+
 			"! rtph264pay config-interval=1 pt=96 "+
-			"! identity sync=true "+
-			"! udpsink host=127.0.0.1 port=%d",
-		videoPort)
+			"! udpsink host=127.0.0.1 port=%d sync=true "+
+			"alsasrc device=hw:0,0 do-timestamp=true "+
+			"! audioconvert "+
+			"! audioresample "+
+			"! audio/x-raw,rate=48000,channels=2 "+
+			"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 "+
+			"! opusenc bitrate=64000 "+
+			"! rtpopuspay pt=111 "+
+			"! udpsink host=127.0.0.1 port=%d sync=true",
+		videoPort, audioPort)
 
+	fmt.Println(pipelineStr)
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
 		return nil, err

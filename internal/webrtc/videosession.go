@@ -191,7 +191,6 @@ func (s *VideoSession) startRTPListener(port int, track *webrtc.TrackLocalStatic
 				return
 			}
 
-			fmt.Println("Received RTP packet:", n, "bytes")
 			if err := rtpPacket.Unmarshal(buf[:n]); err != nil {
 				fmt.Printf("Video session %s: %s RTP unmarshal error: %v\n", s.ID, trackType, err)
 				continue
