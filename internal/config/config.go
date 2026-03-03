@@ -47,8 +47,6 @@ const (
 )
 
 type AudioConfig struct {
-	AudioCard   int
-	AudioDevice int
 	AudioVolume float64
 }
 
@@ -79,16 +77,6 @@ func NewGStreamerConfig() *GStreamerConfig {
 		videoAudioPort = 5007
 	}
 
-	audioCard, err := strconv.Atoi(getEnv("AUDIO_CARD", "0"))
-	if err != nil {
-		audioCard = 0
-	}
-
-	audioDevice, err := strconv.Atoi(getEnv("AUDIO_DEVICE", "0"))
-	if err != nil {
-		audioDevice = 0
-	}
-
 	audioVolume, err := strconv.ParseFloat(getEnv("AUDIO_VOLUME", "0.2"), 64)
 	if err != nil {
 		audioVolume = 0.2
@@ -100,8 +88,6 @@ func NewGStreamerConfig() *GStreamerConfig {
 		VideoAudioRTPPort: videoAudioPort,
 		VideoSource:       detectVideoSource(),
 		AudioConfig: AudioConfig{
-			AudioCard:   audioCard,
-			AudioDevice: audioDevice,
 			AudioVolume: audioVolume,
 		},
 	}

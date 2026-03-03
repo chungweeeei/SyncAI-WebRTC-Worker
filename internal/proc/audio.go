@@ -18,7 +18,6 @@ type AudioGStreamerPipeline struct {
 
 func NewAudioGStreamerPipeline(port int, cfg config.AudioConfig) (*AudioGStreamerPipeline, error) {
 
-	// GStreamer pipeline: 接收 RTP Opus → 解碼 → 播放
 	pipelineStr := fmt.Sprintf(
 		"udpsrc port=%d caps=\"application/x-rtp,media=audio,encoding-name=OPUS,payload=111\" "+
 			"! rtpopusdepay "+
@@ -26,8 +25,8 @@ func NewAudioGStreamerPipeline(port int, cfg config.AudioConfig) (*AudioGStreame
 			"! audioconvert "+
 			"! volume volume=%f "+
 			"! audioresample "+
-			"! alsasink device=hw:%d,%d",
-		port, cfg.AudioVolume, cfg.AudioCard, cfg.AudioDevice,
+			"! pulsesink",
+		port, cfg.AudioVolume,
 	)
 
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
