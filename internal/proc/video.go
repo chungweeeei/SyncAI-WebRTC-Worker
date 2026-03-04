@@ -8,13 +8,14 @@ import (
 )
 
 type VideoGStreamerPipeline struct {
-	pipeline *gst.Pipeline
+	pipeline Pipeline
 	mu       sync.Mutex
 	closed   bool
 }
 
-func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipeline, error) {
-	pipelineStr := fmt.Sprintf(
+// BuildVideoPipelineString 建立視訊 pipeline 字串
+func BuildVideoPipelineString(videoPort, audioPort int) string {
+	return fmt.Sprintf(
 		"v4l2src device=/dev/syncai_camera do-timestamp=true "+
 			"! videoconvert "+
 			"! video/x-raw,width=640,height=480,framerate=30/1 "+
@@ -34,8 +35,18 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipelin
 			"! rtpopuspay pt=111 "+
 			"! udpsink host=127.0.0.1 port=%d sync=true",
 		videoPort, audioPort)
+}
 
-	pipeline, err := gst.NewPipelineFromString(pipelineStr)
+// NewVideoGStreamerPipeline 使用預設的 PipelineFactory
+func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipeline, error) {
+	return NewVideoGStreamerPipelineWithFactory(videoPort, audioPort, defaultFactory)
+}
+
+// NewVideoGStreamerPipelineWithFactory 允許注入 PipelineFactory（用於測試）
+func NewVideoGStreamerPipelineWithFactory(videoPort, audioPort int, factory PipelineFactory) (*VideoGStreamerPipeline, error) {
+	pipelineStr := BuildVideoPipelineString(videoPort, audioPort)
+
+	pipeline, err := factory.NewPipelineFromString(pipelineStr)
 	if err != nil {
 		return nil, err
 	}
@@ -56,12 +67,17 @@ func (g *VideoGStreamerPipeline) Close() error {
 	if g.closed {
 		return nil
 	}
-
 	g.closed = true
+
 	if g.pipeline != nil {
 		g.pipeline.SetState(gst.StateNull)
 		g.pipeline.Unref()
 	}
-
 	return nil
+}
+
+func (g *VideoGStreamerPipeline) IsClosed() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.closed
 }

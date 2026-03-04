@@ -20,7 +20,7 @@ func NewRouter(app *config.AppConfig, gCfg *config.GStreamerConfig) *gin.Engine 
 		AllowCredentials: true,
 	}))
 
-	h := handlers.NewHandler(app, gCfg)
+	h := handlers.NewHandler(app, gCfg, &handlers.DefaultSessionManager{})
 
 	router.POST("/control/whip", h.HandleControlWHIP)
 	router.DELETE("/control/whip/:id", h.DeleteControlWHIP)

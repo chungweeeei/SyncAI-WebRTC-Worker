@@ -30,7 +30,7 @@ func (h *Handler) HandleControlWHIP(c *gin.Context) {
 		Dialer:       transport.NewWebSocketDialer(),
 	}
 
-	sessionID, answerSDP, err := rtc.CreateSession(context.Background(), string(offerSDP), opts)
+	sessionID, answerSDP, err := h.SessionManager.CreateSession(context.Background(), string(offerSDP), opts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create WebRTC session"})
 		return
@@ -44,7 +44,7 @@ func (h *Handler) HandleControlWHIP(c *gin.Context) {
 func (h *Handler) DeleteControlWHIP(c *gin.Context) {
 	sessionID := c.Param("id")
 
-	if err := rtc.DeleteSession(sessionID); err != nil {
+	if err := h.SessionManager.DeleteSession(sessionID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
 		return
 	}

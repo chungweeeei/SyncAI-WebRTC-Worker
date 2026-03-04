@@ -14,7 +14,7 @@ import (
 
 type VideoSession struct {
 	ID               string
-	PC               *webrtc.PeerConnection
+	PC               PeerConnectionInterface
 	GStreamer        *proc.VideoGStreamerPipeline
 	videoTrack       *webrtc.TrackLocalStaticRTP
 	audioTrack       *webrtc.TrackLocalStaticRTP
@@ -30,12 +30,18 @@ var (
 )
 
 type VideoSessionOptions struct {
-	VideoRTPPort int
-	AudioRTPPort int
-	VideoSource  config.VideoSourceType
+	VideoRTPPort    int
+	AudioRTPPort    int
+	VideoSource     config.VideoSourceType
+	PCFactory       PeerConnectionFactory
+	PipelineFactory proc.PipelineFactory
 }
 
 func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, string, error) {
+	factory := opts.PCFactory
+	if factory == nil {
+		factory = defaultPCFactory
+	}
 
 	mediaEngine := &webrtc.MediaEngine{}
 	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
@@ -44,7 +50,7 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
 
-	pc, err := api.NewPeerConnection(webrtc.Configuration{
+	rtcPC, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{}},
 		},
@@ -52,6 +58,8 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create peer connection: %w", err)
 	}
+
+	pc := &RealPeerConnection{PeerConnection: rtcPC}
 
 	sessionID := generateSessionID()
 	session := &VideoSession{
@@ -99,7 +107,11 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 			return "", "", err
 		}
 
-		gst, err := proc.NewVideoGStreamerPipeline(opts.VideoRTPPort, opts.AudioRTPPort)
+		pipelineFactory := opts.PipelineFactory
+		if pipelineFactory == nil {
+			pipelineFactory = &proc.DefaultPipelineFactory{}
+		}
+		gst, err := proc.NewVideoGStreamerPipelineWithFactory(opts.VideoRTPPort, opts.AudioRTPPort, pipelineFactory)
 		if err != nil {
 			session.Close()
 			return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
@@ -136,12 +148,21 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		return "", "", fmt.Errorf("failed to create answer: %w", err)
 	}
 
-	gatherComplete := webrtc.GatheringCompletePromise(pc)
-	if err := pc.SetLocalDescription(answer); err != nil {
-		session.Close()
-		return "", "", fmt.Errorf("failed to set local description: %w", err)
+	// Use Underlying() to get the real PeerConnection for GatheringCompletePromise
+	if underlying := pc.Underlying(); underlying != nil {
+		gatherComplete := webrtc.GatheringCompletePromise(underlying)
+		if err := pc.SetLocalDescription(answer); err != nil {
+			session.Close()
+			return "", "", fmt.Errorf("failed to set local description: %w", err)
+		}
+		<-gatherComplete
+	} else {
+		// Mock environment: skip gathering
+		if err := pc.SetLocalDescription(answer); err != nil {
+			session.Close()
+			return "", "", fmt.Errorf("failed to set local description: %w", err)
+		}
 	}
-	<-gatherComplete
 
 	videoSessionsMu.Lock()
 	videoSessions[sessionID] = session

@@ -12,7 +12,7 @@ import (
 
 type AudioSession struct {
 	ID        string
-	PC        *webrtc.PeerConnection
+	PC        PeerConnectionInterface
 	GStreamer *proc.AudioGStreamerPipeline
 	udpConn   *net.UDPConn
 	mu        sync.Mutex
@@ -24,20 +24,23 @@ var (
 )
 
 type AudioSessionOptions struct {
-	RTPPort  int // UDP port for GStreamer
-	AudioCfg config.AudioConfig
+	RTPPort         int
+	AudioCfg        config.AudioConfig
+	PCFactory       PeerConnectionFactory
+	PipelineFactory proc.PipelineFactory
 }
 
 func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, string, error) {
-	pc, err := webrtc.NewPeerConnection(
-		webrtc.Configuration{
-			ICEServers: []webrtc.ICEServer{
-				{
-					URLs: []string{},
-				},
-			},
+	factory := opts.PCFactory
+	if factory == nil {
+		factory = defaultPCFactory
+	}
+
+	pc, err := factory.NewPeerConnection(webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
 		},
-	)
+	})
 	if err != nil {
 		return "", "", err
 	}
@@ -49,7 +52,13 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 	}
 
 	port := opts.RTPPort
-	gst, err := proc.NewAudioGStreamerPipeline(port, opts.AudioCfg)
+
+	var gst *proc.AudioGStreamerPipeline
+	if opts.PipelineFactory != nil {
+		proc.SetDefaultFactory(opts.PipelineFactory)
+		defer proc.ResetDefaultFactory()
+	}
+	gst, err = proc.NewAudioGStreamerPipeline(port, opts.AudioCfg)
 	if err != nil {
 		pc.Close()
 		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
@@ -115,12 +124,21 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 		return "", "", fmt.Errorf("failed to create answer: %w", err)
 	}
 
-	gatherComplete := webrtc.GatheringCompletePromise(pc)
-	if err := pc.SetLocalDescription(answer); err != nil {
-		session.Close()
-		return "", "", fmt.Errorf("failed to set local description: %w", err)
+	// Use Underlying() to get the real PeerConnection for GatheringCompletePromise
+	if underlying := pc.Underlying(); underlying != nil {
+		gatherComplete := webrtc.GatheringCompletePromise(underlying)
+		if err := pc.SetLocalDescription(answer); err != nil {
+			session.Close()
+			return "", "", fmt.Errorf("failed to set local description: %w", err)
+		}
+		<-gatherComplete
+	} else {
+		// Mock environment: skip gathering
+		if err := pc.SetLocalDescription(answer); err != nil {
+			session.Close()
+			return "", "", fmt.Errorf("failed to set local description: %w", err)
+		}
 	}
-	<-gatherComplete
 
 	audioSessionsMu.Lock()
 	audioSessions[sessionID] = session

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 
 	rtc "SyncAI-WebRTC-Worker/internal/webrtc"
@@ -28,9 +27,8 @@ func (h *Handler) HandleVideoWHEP(c *gin.Context) {
 		VideoSource:  h.GStreamerCfg.VideoSource,
 	}
 
-	sessionID, answerSDP, err := rtc.CreateVideoSession(string(offerSDP), opts)
+	sessionID, answerSDP, err := h.SessionManager.CreateVideoSession(string(offerSDP), opts)
 	if err != nil {
-		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create WebRTC session"})
 		return
 	}
@@ -43,7 +41,7 @@ func (h *Handler) HandleVideoWHEP(c *gin.Context) {
 func (h *Handler) DeleteVideoWHEP(c *gin.Context) {
 	sessionID := c.Param("id")
 
-	if err := rtc.DeleteVideoSession(sessionID); err != nil {
+	if err := h.SessionManager.DeleteVideoSession(sessionID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
 		return
 	}
