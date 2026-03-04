@@ -33,6 +33,12 @@ func (h *Handler) HandleVideoWHEP(c *gin.Context) {
 		return
 	}
 
+	// TODO
+	// if err := h.RobotGateway.StartRTSPPusher(); err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open ROS Node"})
+	// 	return
+	// }
+
 	c.Header("Content-Type", "application/sdp")
 	c.Header("Location", "/video/whep/"+sessionID)
 	c.String(http.StatusCreated, answerSDP)
@@ -45,6 +51,12 @@ func (h *Handler) DeleteVideoWHEP(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
 		return
 	}
+
+	// TODO
+	// if err := h.RobotGateway.StopRTSPPusher(); err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to closed ROS Node"})
+	// 	return
+	// }
 
 	c.Status(http.StatusOK)
 }

@@ -51,6 +51,20 @@ func (m *MockSessionManager) DeleteVideoSession(sessionID string) error {
 	return args.Error(0)
 }
 
+type MockRobotGateway struct {
+	mock.Mock
+}
+
+func (m *MockRobotGateway) StartRTSPPusher() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockRobotGateway) StopRTSPPusher() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 // setup function for unittest
 func setupTestRouter(h *handlers.Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -72,7 +86,7 @@ func TestNewHandler(t *testing.T) {
 	gConfig := &config.GStreamerConfig{}
 
 	// Act
-	handler := handlers.NewHandler(appConfig, gConfig, &MockSessionManager{})
+	handler := handlers.NewHandler(appConfig, gConfig, &MockSessionManager{}, &MockRobotGateway{})
 
 	// Assert
 	require.NotNil(t, handler)
@@ -88,7 +102,8 @@ func TestNewHandler(t *testing.T) {
 func TestHandleControlWHIP_Success(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	// mock session manager response
@@ -116,7 +131,8 @@ func TestHandleControlWHIP_Success(t *testing.T) {
 func TestHandleControlWHIP_InvalidContentType(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	// Act
@@ -133,7 +149,8 @@ func TestHandleControlWHIP_InvalidContentType(t *testing.T) {
 func TestHandleControlWHIP_CreateSessionError(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	offerSDP := "v=0\r\n"
@@ -155,7 +172,8 @@ func TestHandleControlWHIP_CreateSessionError(t *testing.T) {
 func TestDeleteControlWHIP_Success(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	sessionID := "session-123"
@@ -174,7 +192,8 @@ func TestDeleteControlWHIP_Success(t *testing.T) {
 func TestDeleteControlWHIP_NotFound(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	sessionID := "session-123"
@@ -198,7 +217,8 @@ func TestDeleteControlWHIP_NotFound(t *testing.T) {
 func TestHandleAudioWHIP_Success(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	offerSDP := "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n"
@@ -225,7 +245,8 @@ func TestHandleAudioWHIP_Success(t *testing.T) {
 func TestHandleAudioWHIP_InvalidContentType(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	// Act
@@ -242,7 +263,8 @@ func TestHandleAudioWHIP_InvalidContentType(t *testing.T) {
 func TestHandleAudioWHIP_CreateSessionError(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	offerSDP := "v=0\r\n"
@@ -264,7 +286,8 @@ func TestHandleAudioWHIP_CreateSessionError(t *testing.T) {
 func TestDeleteAudioWHIP_Success(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	sessionID := "audio-session-123"
@@ -283,7 +306,8 @@ func TestDeleteAudioWHIP_Success(t *testing.T) {
 func TestDeleteAudioWHIP_NotFound(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	sessionID := "non-existent"
@@ -305,7 +329,8 @@ func TestDeleteAudioWHIP_NotFound(t *testing.T) {
 func TestHandleVideoWHEP_Success(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	offerSDP := "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n"
@@ -332,7 +357,8 @@ func TestHandleVideoWHEP_Success(t *testing.T) {
 func TestHandleVideoWHEP_InvalidContentType(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	// Act
@@ -348,7 +374,8 @@ func TestHandleVideoWHEP_InvalidContentType(t *testing.T) {
 func TestHandleVideoWHEP_CreateSessionError(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	offerSDP := "v=0\r\n"
@@ -369,7 +396,8 @@ func TestHandleVideoWHEP_CreateSessionError(t *testing.T) {
 func TestDeleteVideoWHEP_Success(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	sessionID := "video-session-123"
@@ -388,7 +416,8 @@ func TestDeleteVideoWHEP_Success(t *testing.T) {
 func TestDeleteVideoWHEP_NotFound(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
 	router := setupTestRouter(handler)
 
 	sessionID := "non-existent"

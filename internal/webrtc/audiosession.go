@@ -38,7 +38,9 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 
 	pc, err := factory.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
+			{
+				URLs: []string{"stun:stun.l.google.com:19302"},
+			},
 		},
 	})
 	if err != nil {

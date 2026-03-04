@@ -52,7 +52,9 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 
 	rtcPC, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{}},
+			{
+				URLs: []string{"stun:stun.l.google.com:19302"},
+			},
 		},
 	})
 	if err != nil {

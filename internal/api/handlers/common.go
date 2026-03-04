@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"SyncAI-WebRTC-Worker/internal/config"
+	"SyncAI-WebRTC-Worker/internal/gateway"
 	rtc "SyncAI-WebRTC-Worker/internal/webrtc"
 	"context"
 )
@@ -46,12 +47,14 @@ type Handler struct {
 	App            *config.AppConfig
 	GStreamerCfg   *config.GStreamerConfig
 	SessionManager SessionManager
+	RobotGateway   gateway.RobotGatewayInterface
 }
 
-func NewHandler(app *config.AppConfig, gCfg *config.GStreamerConfig, sm SessionManager) *Handler {
+func NewHandler(app *config.AppConfig, gCfg *config.GStreamerConfig, sm SessionManager, rg gateway.RobotGatewayInterface) *Handler {
 	return &Handler{
 		App:            app,
 		GStreamerCfg:   gCfg,
 		SessionManager: sm,
+		RobotGateway:   rg,
 	}
 }
