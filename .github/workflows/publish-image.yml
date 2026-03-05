@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - feat/ci
-    paths:
-      - Dockerfile
 
 env:
   REGISTRY: ghcr.io
