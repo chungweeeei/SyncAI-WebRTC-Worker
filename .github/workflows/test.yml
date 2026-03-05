@@ -1,0 +1,32 @@
+name: Test
+
+on:
+    pull_request:
+        branches:
+            - main
+            - stage
+            - dev
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        container:
+            image: ghcr.io/${{ github.repository_owner }}/syncai-webrtc-worker-base:latest
+            credentials:
+                username: ${{ github.actor }}
+                password: ${{ secrets.GITHUB_TOKEN }}
+        
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+            
+            - name: Download dependencies
+              run: go mod download
+            
+            - name: Run go vet
+              run: go vet ./...
+            
+            - name: Run tests
+              run: go test -v -race ./...
+
+    

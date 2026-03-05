@@ -1,9 +1,10 @@
-name: Test
+name: Build
 
 on:
-    pull_request:
+    push:
         branches:
             - main
+            - stage
             - dev
 
 jobs:
@@ -28,7 +29,6 @@ jobs:
             - name: Run tests
               run: go test -v -race ./...
 
-    
     build:
         runs-on: ubuntu-latest
         needs: test
@@ -53,26 +53,23 @@ jobs:
           
             - name: Smoke test - check port 18000
               run: |
-                apt-get update && apt-get install -y netcat-openbsd curl
+                apt-get update && apt-get install -y netcat-openbsd
 
-                BINARY=$(find dist/ -type f -executable | head -n 1)
-                chmod +x $BINARY
+                chmod +x dist/syncai-webrtc-worker
 
-                $BINARY &
+                ./dist/syncai-webrtc-worker &
                 PID=$!
 
                 sleep 5
 
-                # Use netcat to check if the port is open
                 if nc -z localhost 18000; then
-                  echo "Port 18000 is open"
+                  echo "✅ Port 18000 is open"
+                  kill $PID 2>/dev/null || true
                 else
-                  echo "Port 18000 is not open"
+                  echo "❌ Port 18000 is not open"
                   kill $PID 2>/dev/null || true
                   exit 1
                 fi
-
-                kill $PID 2>/dev/null || true
 
             - name: Upload binary
               uses: actions/upload-artifact@v4
