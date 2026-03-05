@@ -39,7 +39,6 @@ func NewAudioGStreamerPipeline(port int, cfg config.AudioConfig) (*AudioGStreame
 func NewAudioGStreamerPipelineWithFactory(port int, cfg config.AudioConfig, factory PipelineFactory) (*AudioGStreamerPipeline, error) {
 	pipelineStr := BuildAudioPipelineString(port, cfg)
 
-	fmt.Println(pipelineStr)
 	pipeline, err := factory.NewPipelineFromString(pipelineStr)
 	if err != nil {
 		return nil, err

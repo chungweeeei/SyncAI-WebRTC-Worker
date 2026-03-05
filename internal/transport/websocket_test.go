@@ -75,6 +75,7 @@ func TestWebSocketDialer_Dial_InvalidURL(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, transport)
 }
+
 func TestWebSocketDialer_Dial_InvalidScheme(t *testing.T) {
 	dialer := NewWebSocketDialer()
 
