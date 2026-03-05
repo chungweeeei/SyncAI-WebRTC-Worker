@@ -29,9 +29,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
     
+      - name: Print Docker image information
+        run: |
+          echo "Docker image: ${{ env.REGISTRY}}/${{ github.repository_owner }}/${{ env.IMAGE_NAME}}:latest"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ env.REGISTRY}}/${{ github.repository_owner }}/${{ env.IMAGE_NAME}}:latest
+    
+      
