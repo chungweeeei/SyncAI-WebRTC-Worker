@@ -1,0 +1,92 @@
+name: Test
+
+on:
+    push:
+        branches:
+            - feat/ci
+    pull_request:
+        branches:
+            - main
+            - dev
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        container:
+            image: ghcr.io/${{ github.repository_owner }}/syncai-webrtc-worker-base:latest
+            credentials:
+                username: ${{ github.actor }}
+                password: ${{ secrets.GITHUB_TOKEN }}
+        
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+            
+            - name: Download dependencies
+              run: go mod download
+            
+            - name: Run go vet
+              run: go vet ./...
+            
+            - name: Run tests
+              run: go test -v -race -coverprofile=coverage.out ./... | tee test-output.txt
+
+            - name: Generate coverage report
+              run: go tool cover -html=coverage.out -o coverage.html
+
+            - name: Upload test results
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                name: test-results
+                path: |
+                  test-output.txt
+                  coverage.out
+                  coverage.html
+                retention-days: 3
+    
+    build:
+        runs-on: ubuntu-latest
+        needs: test
+        container:
+            image: ghcr.io/${{ github.repository_owner }}/syncai-webrtc-worker-base:latest
+            credentials:
+                username: ${{ github.actor }}
+                password: ${{ secrets.GITHUB_TOKEN }}
+        
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+            
+            - name: Build binary
+              run: /bin/bash scripts/build-entrypoint.sh
+          
+            - name: Smoke test - check port 18000
+              run: |
+                apt-get update && apt-get install -y netcat-openbsd curl
+
+                BINARY=$(find dist/ -type f -executable | head -n 1)
+                chmod +x $BINARY
+
+                $BINARY &
+                PID=$!
+
+                sleep 5
+
+                # Use netcat to check if the port is open
+                if nc -z localhost 18000; then
+                  echo "Port 18000 is open"
+                else
+                  echo "Port 18000 is not open"
+                  kill $PID 2>/dev/null || true
+                  exit 1
+                fi
+
+                kill $PID 2>/dev/null || true
+
+            - name: Upload binary
+              uses: actions/upload-artifact@v4
+              with:
+                name: built-binary
+                path: dist/
+                retention-days: 3
