@@ -59,7 +59,9 @@ jobs:
               uses: actions/checkout@v4
             
             - name: Build binary
-              run: /bin/bash scripts/build-entrypoint.sh
+              run: |
+                mkdir -p dist
+                go build -o dist/syncai-webrtc-worker cmd/main.go
           
             - name: Smoke test - check port 18000
               run: |
