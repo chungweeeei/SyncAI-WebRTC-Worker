@@ -339,6 +339,7 @@ func TestHandleVideoWHEP_Success(t *testing.T) {
 
 	mockSM.On("CreateVideoSession", offerSDP, mock.Anything).
 		Return(expectedSessionID, expectedAnswerSDP, nil)
+	mockRobotGateway.On("StartRTSPPusher").Return(nil)
 
 	// Act
 	req := httptest.NewRequest(http.MethodPost, "/video/whep", strings.NewReader(offerSDP))
@@ -352,6 +353,7 @@ func TestHandleVideoWHEP_Success(t *testing.T) {
 	assert.Equal(t, "/video/whep/"+expectedSessionID, w.Header().Get("Location"))
 	assert.Equal(t, expectedAnswerSDP, w.Body.String())
 	mockSM.AssertExpectations(t)
+	mockRobotGateway.AssertExpectations(t)
 }
 
 func TestHandleVideoWHEP_InvalidContentType(t *testing.T) {
@@ -401,6 +403,7 @@ func TestDeleteVideoWHEP_Success(t *testing.T) {
 	router := setupTestRouter(handler)
 
 	sessionID := "video-session-123"
+	mockRobotGateway.On("StopRTSPPusher").Return(nil)
 	mockSM.On("DeleteVideoSession", sessionID).Return(nil)
 
 	// Act
@@ -411,6 +414,7 @@ func TestDeleteVideoWHEP_Success(t *testing.T) {
 	// Assert
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockSM.AssertExpectations(t)
+	mockRobotGateway.AssertExpectations(t)
 }
 
 func TestDeleteVideoWHEP_NotFound(t *testing.T) {
@@ -421,6 +425,7 @@ func TestDeleteVideoWHEP_NotFound(t *testing.T) {
 	router := setupTestRouter(handler)
 
 	sessionID := "non-existent"
+	mockRobotGateway.On("StopRTSPPusher").Return(nil)
 	mockSM.On("DeleteVideoSession", sessionID).Return(errors.New("not found"))
 
 	// Act

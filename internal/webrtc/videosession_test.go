@@ -18,9 +18,8 @@ func TestDeleteVideoSession_NotFound(t *testing.T) {
 	// Act
 	err := DeleteVideoSession("non-existent-session-id")
 
-	// Assert
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "video session not found")
+	// Assert - DeleteVideoSession returns nil when session not found (idempotent behavior)
+	assert.NoError(t, err)
 }
 
 func TestDeleteVideoSession_Success(t *testing.T) {
