@@ -16,6 +16,7 @@ type PeerConnectionInterface interface {
 	AddTrack(track webrtc.TrackLocal) (*webrtc.RTPSender, error)
 	ConnectionState() webrtc.PeerConnectionState
 	Close() error
+
 	// Underlying returns the real PeerConnection (nil for mocks)
 	Underlying() *webrtc.PeerConnection
 }

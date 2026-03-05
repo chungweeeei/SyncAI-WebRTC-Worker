@@ -17,11 +17,12 @@ func NewRouter(app *config.AppConfig, gCfg *config.GStreamerConfig) *gin.Engine 
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"https://*", "http://*", "http://localhost:5173"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Content-Type", "Content-Length", "Authorization"},
+		ExposeHeaders:    []string{"Location"},
 		AllowCredentials: true,
 	}))
 
-	h := handlers.NewHandler(app, gCfg, &handlers.DefaultSessionManager{}, gateway.NewRobotGateway("/tmp/rtsp_pusher"))
+	h := handlers.NewHandler(app, gCfg, &handlers.DefaultSessionManager{}, gateway.NewRobotGateway("/tmp/rtsp_pusher.sock"))
 
 	router.POST("/control/whip", h.HandleControlWHIP)
 	router.DELETE("/control/whip/:id", h.DeleteControlWHIP)

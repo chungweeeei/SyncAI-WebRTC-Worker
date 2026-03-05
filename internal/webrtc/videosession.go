@@ -265,7 +265,8 @@ func DeleteVideoSession(sessionID string) error {
 	videoSessionsMu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("video session not found: %s", sessionID)
+		fmt.Printf("Video session %s not found, might be closed.\n", sessionID)
+		return nil
 	}
 
 	session.Close()
