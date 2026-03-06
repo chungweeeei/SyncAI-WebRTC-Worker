@@ -12,6 +12,7 @@ type WebSocketTransport struct {
 	conn      *websocket.Conn
 	onMessage MessageHandler
 	mu        sync.Mutex
+	handleMu  sync.RWMutex
 	done      chan struct{}
 }
 
@@ -45,6 +46,8 @@ func (t *WebSocketTransport) Send(data []byte) error {
 }
 
 func (t *WebSocketTransport) OnMessage(handler MessageHandler) {
+	t.handleMu.Lock()
+	defer t.handleMu.Unlock()
 	t.onMessage = handler
 }
 
@@ -63,8 +66,11 @@ func (t *WebSocketTransport) readLoop() {
 			if err != nil {
 				return
 			}
-			if t.onMessage != nil {
-				t.onMessage(data)
+			t.handleMu.RLock()
+			handler := t.onMessage
+			t.handleMu.RUnlock()
+			if handler != nil {
+				handler(data)
 			}
 		}
 	}

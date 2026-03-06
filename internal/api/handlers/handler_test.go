@@ -326,11 +326,53 @@ func TestDeleteAudioWHIP_NotFound(t *testing.T) {
 // =============================
 // Video Handler Unittest
 // =============================
-func TestHandleVideoWHEP_Success(t *testing.T) {
+func TestHandleVideoWHEP_Success_CameraSource(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
 	mockRobotGateway := new(MockRobotGateway)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
+	handler := handlers.NewHandler(
+		&config.AppConfig{},
+		&config.GStreamerConfig{
+			VideoSource: config.VideoSourceCamera,
+		},
+		mockSM,
+		mockRobotGateway,
+	)
+	router := setupTestRouter(handler)
+
+	offerSDP := "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n"
+	expectedSessionID := "video-session-123"
+	expectedAnswerSDP := "v=0\r\na=video-answer\r\n"
+
+	mockSM.On("CreateVideoSession", offerSDP, mock.Anything).
+		Return(expectedSessionID, expectedAnswerSDP, nil)
+
+	// Act
+	req := httptest.NewRequest(http.MethodPost, "/video/whep", strings.NewReader(offerSDP))
+	req.Header.Set("Content-Type", "application/sdp")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Assert
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, "application/sdp", w.Header().Get("Content-Type"))
+	assert.Equal(t, "/video/whep/"+expectedSessionID, w.Header().Get("Location"))
+	assert.Equal(t, expectedAnswerSDP, w.Body.String())
+	mockSM.AssertExpectations(t)
+}
+
+func TestHandleVideoWHEP_Success_ROSSource(t *testing.T) {
+	// Arrange
+	mockSM := new(MockSessionManager)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(
+		&config.AppConfig{},
+		&config.GStreamerConfig{
+			VideoSource: config.VideoSourceROS,
+		},
+		mockSM,
+		mockRobotGateway,
+	)
 	router := setupTestRouter(handler)
 
 	offerSDP := "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n"
@@ -352,6 +394,34 @@ func TestHandleVideoWHEP_Success(t *testing.T) {
 	assert.Equal(t, "application/sdp", w.Header().Get("Content-Type"))
 	assert.Equal(t, "/video/whep/"+expectedSessionID, w.Header().Get("Location"))
 	assert.Equal(t, expectedAnswerSDP, w.Body.String())
+	mockSM.AssertExpectations(t)
+}
+
+func TestHandleVideoWHEP_ROSSource_StartRTSPPusherError(t *testing.T) {
+	// Arrange
+	mockSM := new(MockSessionManager)
+	mockRobotGateway := new(MockRobotGateway)
+	gConfig := &config.GStreamerConfig{VideoSource: config.VideoSourceROS}
+	handler := handlers.NewHandler(&config.AppConfig{}, gConfig, mockSM, mockRobotGateway)
+	router := setupTestRouter(handler)
+
+	offerSDP := "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n"
+	expectedSessionID := "video-session-123"
+	expectedAnswerSDP := "v=0\r\na=video-answer\r\n"
+
+	mockSM.On("CreateVideoSession", offerSDP, mock.Anything).
+		Return(expectedSessionID, expectedAnswerSDP, nil)
+	mockRobotGateway.On("StartRTSPPusher").Return(errors.New("ROS error"))
+
+	// Act
+	req := httptest.NewRequest(http.MethodPost, "/video/whep", strings.NewReader(offerSDP))
+	req.Header.Set("Content-Type", "application/sdp")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Assert
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to open ROS Node")
 	mockSM.AssertExpectations(t)
 	mockRobotGateway.AssertExpectations(t)
 }
@@ -395,15 +465,21 @@ func TestHandleVideoWHEP_CreateSessionError(t *testing.T) {
 	mockSM.AssertExpectations(t)
 }
 
-func TestDeleteVideoWHEP_Success(t *testing.T) {
+func TestDeleteVideoWHEP_Success_CameraSource(t *testing.T) {
 	// Arrange
 	mockSM := new(MockSessionManager)
 	mockRobotGateway := new(MockRobotGateway)
-	handler := handlers.NewHandler(&config.AppConfig{}, &config.GStreamerConfig{}, mockSM, mockRobotGateway)
+	handler := handlers.NewHandler(
+		&config.AppConfig{},
+		&config.GStreamerConfig{
+			VideoSource: config.VideoSourceCamera,
+		},
+		mockSM,
+		mockRobotGateway,
+	)
 	router := setupTestRouter(handler)
 
 	sessionID := "video-session-123"
-	mockRobotGateway.On("StopRTSPPusher").Return(nil)
 	mockSM.On("DeleteVideoSession", sessionID).Return(nil)
 
 	// Act
@@ -414,6 +490,56 @@ func TestDeleteVideoWHEP_Success(t *testing.T) {
 	// Assert
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockSM.AssertExpectations(t)
+}
+
+func TestDeleteVideoWHEP_Success_ROSSource(t *testing.T) {
+	// Arrange
+	mockSM := new(MockSessionManager)
+	mockRobotGateway := new(MockRobotGateway)
+	handler := handlers.NewHandler(
+		&config.AppConfig{},
+		&config.GStreamerConfig{
+			VideoSource: config.VideoSourceROS,
+		},
+		mockSM,
+		mockRobotGateway,
+	)
+	router := setupTestRouter(handler)
+
+	sessionID := "video-session-123"
+	mockSM.On("DeleteVideoSession", sessionID).Return(nil)
+	mockRobotGateway.On("StopRTSPPusher").Return(nil)
+
+	// Act
+	req := httptest.NewRequest(http.MethodDelete, "/video/whep/"+sessionID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Assert
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSM.AssertExpectations(t)
+	mockRobotGateway.AssertExpectations(t)
+}
+
+func TestDeleteVideoWHEP_ROSSource_StopRTSPPusherError(t *testing.T) {
+	// Arrange
+	mockSM := new(MockSessionManager)
+	mockRobotGateway := new(MockRobotGateway)
+	gConfig := &config.GStreamerConfig{VideoSource: config.VideoSourceROS}
+	handler := handlers.NewHandler(&config.AppConfig{}, gConfig, mockSM, mockRobotGateway)
+	router := setupTestRouter(handler)
+
+	sessionID := "video-session-123"
+	mockRobotGateway.On("StopRTSPPusher").Return(errors.New("stop error"))
+
+	// Act
+	req := httptest.NewRequest(http.MethodDelete, "/video/whep/"+sessionID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Assert
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to closed ROS Node")
 	mockRobotGateway.AssertExpectations(t)
 }
 

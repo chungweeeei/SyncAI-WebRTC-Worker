@@ -3,7 +3,7 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    image: syncai-webrtc-builder
+    image: syncai-webrtc-worker-base
     volumes:
       - ./:/src
       - ./dist:/dist
