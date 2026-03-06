@@ -145,7 +145,11 @@ func TestWebSocketTransport_Send_EmptyData(t *testing.T) {
 func TestWebSocketTransport_OnMessage_ReceivesData(t *testing.T) {
 	// Arrange
 	testData := []byte("server message")
+	clientReady := make(chan struct{})
+
 	server := newTestWebSocketServer(t, func(conn *websocket.Conn) {
+		// Wait for the client to be ready before sending a message
+		<-clientReady
 		conn.WriteMessage(websocket.BinaryMessage, testData)
 		// Keep the connection open for a short time to allow message processing
 		time.Sleep(100 * time.Millisecond)
@@ -164,6 +168,9 @@ func TestWebSocketTransport_OnMessage_ReceivesData(t *testing.T) {
 		receivedData <- data
 	})
 
+	// Notify server that client is ready to receive messages
+	close(clientReady)
+
 	// Assert
 	select {
 	case received := <-receivedData:
@@ -180,8 +187,11 @@ func TestWebSocketTransport_OnMessage_MultipleMessages(t *testing.T) {
 		[]byte("message 2"),
 		[]byte("message 3"),
 	}
+	clientReady := make(chan struct{})
 
 	server := newTestWebSocketServer(t, func(conn *websocket.Conn) {
+		// wait for the client to be ready before sending messages
+		<-clientReady
 		for _, msg := range messages {
 			conn.WriteMessage(websocket.BinaryMessage, msg)
 			time.Sleep(10 * time.Millisecond)
@@ -194,6 +204,9 @@ func TestWebSocketTransport_OnMessage_MultipleMessages(t *testing.T) {
 	transport, err := dialer.Dial(context.Background(), toWSURL(server.URL))
 	require.NoError(t, err)
 	defer transport.Close()
+
+	// Notify server that client is ready to receive messages
+	close(clientReady)
 
 	var receivedMessages [][]byte
 	var mu sync.Mutex
