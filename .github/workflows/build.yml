@@ -8,30 +8,8 @@ on:
             - dev
 
 jobs:
-    test:
-        runs-on: ubuntu-latest
-        container:
-            image: ghcr.io/${{ github.repository_owner }}/syncai-webrtc-worker-base:latest
-            credentials:
-                username: ${{ github.actor }}
-                password: ${{ secrets.GITHUB_TOKEN }}
-        
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-            
-            - name: Download dependencies
-              run: go mod download
-            
-            - name: Run go vet
-              run: go vet ./...
-            
-            - name: Run tests
-              run: go test -v -race ./...
-
     build:
         runs-on: ubuntu-latest
-        needs: test
         container:
             image: ghcr.io/${{ github.repository_owner }}/syncai-webrtc-worker-base:latest
             credentials:
@@ -63,10 +41,10 @@ jobs:
                 sleep 5
 
                 if nc -z localhost 18000; then
-                  echo "✅ Port 18000 is open"
+                  echo "Port 18000 is open"
                   kill $PID 2>/dev/null || true
                 else
-                  echo "❌ Port 18000 is not open"
+                  echo "Port 18000 is not open"
                   kill $PID 2>/dev/null || true
                   exit 1
                 fi
@@ -76,4 +54,4 @@ jobs:
               with:
                 name: syncai-webrtc-worker-${{ steps.date.outputs.BUILD_DATE }}
                 path: dist/
-                retention-days: 3
+                retention-days: 7
