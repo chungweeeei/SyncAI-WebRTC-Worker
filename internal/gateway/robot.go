@@ -1,6 +1,9 @@
 package gateway
 
 import (
+	"SyncAI-WebRTC-Worker/internal/pb"
+	"SyncAI-WebRTC-Worker/internal/transport"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -10,23 +13,33 @@ import (
 type RobotGatewayInterface interface {
 	StartRTSPPusher() error
 	StopRTSPPusher() error
+
+	// gRPC methods
+	ConnectGRPC(ctx context.Context) error
+	StartVelocityStream(ctx context.Context) error
+	SendVelocityCommand(cmd *pb.VelocityCommand) error
+	CloseVelocityStream() (*pb.ControlResponse, error)
+	Close() error
 }
 
 type RobotGateway struct {
-	socketPath string
-	mu         sync.Mutex
+	socketPath    string
+	controlClient transport.ControlClient
+	mu            sync.Mutex
 }
 
 type RobotCommand struct {
 	Action string `json:"action"`
 }
 
-func NewRobotGateway(socketPath string) *RobotGateway {
+func NewRobotGateway(socketPath string, controlClient transport.ControlClient) *RobotGateway {
 	if socketPath == "" {
 		socketPath = "/tmp/rtsp_pusher.sock"
 	}
+
 	return &RobotGateway{
-		socketPath: socketPath,
+		socketPath:    socketPath,
+		controlClient: controlClient,
 	}
 }
 
@@ -85,5 +98,49 @@ func (r *RobotGateway) StopRTSPPusher() error {
 		return fmt.Errorf("failed to write to socket: %w", err)
 	}
 
+	return nil
+}
+
+func (r *RobotGateway) ConnectGRPC(ctx context.Context) error {
+	if r.controlClient == nil {
+		return fmt.Errorf("control client not configured")
+	}
+
+	return r.controlClient.Connect(ctx)
+}
+
+func (r *RobotGateway) StartVelocityStream(ctx context.Context) error {
+	if r.controlClient == nil {
+		return fmt.Errorf("control client not configured")
+	}
+	return r.controlClient.StartVelocityStream(ctx)
+}
+
+func (r *RobotGateway) SendVelocityCommand(cmd *pb.VelocityCommand) error {
+	if r.controlClient == nil {
+		return fmt.Errorf("control client not configured")
+	}
+
+	err := r.controlClient.SendVelocityCommand(cmd)
+	if err != nil {
+		fmt.Printf("SendVelocityCommand error: %v\n", err)
+		return err
+	}
+
+	fmt.Println("Velocity command sent successfully")
+	return nil
+}
+
+func (r *RobotGateway) CloseVelocityStream() (*pb.ControlResponse, error) {
+	if r.controlClient == nil {
+		return nil, fmt.Errorf("control client not configured")
+	}
+	return r.controlClient.CloseVelocityStream()
+}
+
+func (r *RobotGateway) Close() error {
+	if r.controlClient != nil {
+		return r.controlClient.Close()
+	}
 	return nil
 }

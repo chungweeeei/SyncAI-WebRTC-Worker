@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"SyncAI-WebRTC-Worker/internal/transport"
@@ -26,12 +27,14 @@ func (h *Handler) HandleControlWHIP(c *gin.Context) {
 	}
 
 	opts := rtc.SessionOptions{
-		WebSocketURL: "ws://host.docker.internal:9090",
+		WebSocketURL: "ws://127.0.0.1:9090",
 		Dialer:       transport.NewWebSocketDialer(),
+		RobotGateway: h.RobotGateway,
 	}
 
 	sessionID, answerSDP, err := h.SessionManager.CreateSession(context.Background(), string(offerSDP), opts)
 	if err != nil {
+		fmt.Printf("Failed to create WebRTC session: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create WebRTC session"})
 		return
 	}
