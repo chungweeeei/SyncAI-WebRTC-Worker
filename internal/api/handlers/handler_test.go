@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"SyncAI-WebRTC-Worker/internal/api/handlers"
 	"SyncAI-WebRTC-Worker/internal/config"
+	"SyncAI-WebRTC-Worker/internal/pb"
 	rtc "SyncAI-WebRTC-Worker/internal/webrtc"
 	"context"
 	"errors"
@@ -61,6 +62,34 @@ func (m *MockRobotGateway) StartRTSPPusher() error {
 }
 
 func (m *MockRobotGateway) StopRTSPPusher() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockRobotGateway) ConnectGRPC(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockRobotGateway) StartVelocityStream(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockRobotGateway) SendVelocityCommand(cmd *pb.VelocityCommand) error {
+	args := m.Called(cmd)
+	return args.Error(0)
+}
+
+func (m *MockRobotGateway) CloseVelocityStream() (*pb.ControlResponse, error) {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*pb.ControlResponse), args.Error(1)
+}
+
+func (m *MockRobotGateway) Close() error {
 	args := m.Called()
 	return args.Error(0)
 }

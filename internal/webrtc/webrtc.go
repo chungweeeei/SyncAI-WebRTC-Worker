@@ -1,9 +1,6 @@
 package webrtc
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/pion/webrtc/v4"
 )
 
@@ -75,55 +72,4 @@ func SetPeerConnectionFactory(factory PeerConnectionFactory) {
 // ResetPeerConnectionFactory resets to default
 func ResetPeerConnectionFactory() {
 	defaultPCFactory = &DefaultPeerConnectionFactory{}
-}
-
-// ActionType defines the type of action
-type ActionType string
-
-const (
-	ActionTypeControl ActionType = "control"
-	ActionTypeCommand ActionType = "command"
-)
-
-// BaseMessage is the wrapper for all messages
-type BaseMessage struct {
-	Action  ActionType      `json:"action"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-type ControlPayload struct {
-	Linear  [3]float64 `json:"linear"`
-	Angular [3]float64 `json:"angular"`
-}
-
-type CommandPayload struct {
-	ID     string          `json:"id"`
-	Name   string          `json:"name"`
-	Type   string          `json:"type"`
-	Params json.RawMessage `json:"params"`
-}
-
-func ParseMessage(data []byte) (*BaseMessage, error) {
-	var msg BaseMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return nil, fmt.Errorf("failed to parse message: %w", err)
-	}
-	return &msg, nil
-}
-
-func (m *BaseMessage) ParseControlPayload() (*ControlPayload, error) {
-	var payload ControlPayload
-	if err := json.Unmarshal(m.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("failed to parse control payload: %w", err)
-	}
-	return &payload, nil
-}
-
-func (m *BaseMessage) ParseCommandPayload() (*CommandPayload, error) {
-	var payload CommandPayload
-	if err := json.Unmarshal(m.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("failed to parse command payload: %w", err)
-	}
-
-	return &payload, nil
 }

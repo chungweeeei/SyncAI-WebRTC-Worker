@@ -4,6 +4,7 @@ import (
 	"SyncAI-WebRTC-Worker/internal/pb"
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -43,14 +44,13 @@ func (c *GRPCControlClient) Connect(ctx context.Context) error {
 		return nil // Already connected
 	}
 
-	fmt.Printf("[gRPC] Connecting to server at: %s\n", c.addr)
+	log.Printf("[gRPC] Connecting to server at: %s\n", c.addr)
 
-	conn, err := grpc.DialContext(ctx, c.addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	conn, err := grpc.NewClient(c.addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("failed to connect to gRPC server %s: %w", c.addr, err)
 	}
 
-	fmt.Println("[gRPC] Connection established")
 	c.conn = conn
 	c.client = pb.NewControlServiceClient(conn)
 	return nil
@@ -64,7 +64,6 @@ func (c *GRPCControlClient) StartVelocityStream(ctx context.Context) error {
 		return fmt.Errorf("gRPC client not connected, call Connect first")
 	}
 
-	fmt.Println("[gRPC] Creating velocity stream...")
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context already cancelled before creating stream: %w", err)
 	}
@@ -74,7 +73,7 @@ func (c *GRPCControlClient) StartVelocityStream(ctx context.Context) error {
 		return fmt.Errorf("failed to create velocity stream: %w", err)
 	}
 
-	fmt.Println("[gRPC] Velocity stream created successfully")
+	log.Println("[gRPC] Velocity stream created successfully")
 	c.velocityStream = stream
 	return nil
 }
@@ -91,16 +90,13 @@ func (c *GRPCControlClient) SendVelocityCommand(cmd *pb.VelocityCommand) error {
 		return fmt.Errorf("stream context error: %w", err)
 	}
 
-	fmt.Printf("[gRPC] Sending: linear=[%.2f, %.2f, %.2f], angular=[%.2f, %.2f, %.2f], ts=%d\n",
-		cmd.Linear.X, cmd.Linear.Y, cmd.Linear.Z,
-		cmd.Angular.X, cmd.Angular.Y, cmd.Angular.Z,
-		cmd.Timestamp)
-
 	if err := c.velocityStream.Send(cmd); err != nil {
 		return fmt.Errorf("failed to send velocity command: %w", err)
 	}
 
-	fmt.Println("[gRPC] Send() returned successfully")
+	log.Printf("[gRPC] Sent velocity command: linear=(%.2f, %.2f), angular=(%.2f)\n",
+		cmd.Linear.X, cmd.Linear.Y, cmd.Angular.Z,
+	)
 	return nil
 }
 

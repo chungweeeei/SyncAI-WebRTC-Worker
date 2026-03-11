@@ -1,7 +1,11 @@
 package gateway
 
 import (
+	"SyncAI-WebRTC-Worker/internal/pb"
+	"SyncAI-WebRTC-Worker/internal/transport"
+	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,7 +17,7 @@ import (
 
 func TestNewRobotGateway_DefaultSocketPath(t *testing.T) {
 	// Act
-	gw := NewRobotGateway("")
+	gw := NewRobotGateway("", nil)
 
 	// Assert
 	assert.NotNil(t, gw)
@@ -25,7 +29,7 @@ func TestNewRobotGateway_CustomSocketPath(t *testing.T) {
 	customPath := "/custom/path/socket.sock"
 
 	// Act
-	gw := NewRobotGateway(customPath)
+	gw := NewRobotGateway(customPath, nil)
 
 	// Assert
 	assert.NotNil(t, gw)
@@ -57,7 +61,7 @@ func TestStartRTSPPusher_Success(t *testing.T) {
 		close(done)
 	}()
 
-	gw := NewRobotGateway(socketPath)
+	gw := NewRobotGateway(socketPath, nil)
 
 	// Act
 	err = gw.StartRTSPPusher()
@@ -99,7 +103,7 @@ func TestStopRTSPPusher_Success(t *testing.T) {
 		close(done)
 	}()
 
-	gw := NewRobotGateway(socketPath)
+	gw := NewRobotGateway(socketPath, nil)
 
 	// Act
 	err = gw.StopRTSPPusher()
@@ -118,7 +122,7 @@ func TestStopRTSPPusher_Success(t *testing.T) {
 
 func TestStartRTSPPusher_ConnectionError(t *testing.T) {
 	// Arrange - use non-existent socket path
-	gw := NewRobotGateway("/nonexistent/path/socket.sock")
+	gw := NewRobotGateway("/nonexistent/path/socket.sock", nil)
 
 	// Act
 	err := gw.StartRTSPPusher()
@@ -130,7 +134,7 @@ func TestStartRTSPPusher_ConnectionError(t *testing.T) {
 
 func TestStopRTSPPusher_ConnectionError(t *testing.T) {
 	// Arrange - use non-existent socket path
-	gw := NewRobotGateway("/nonexistent/path/socket.sock")
+	gw := NewRobotGateway("/nonexistent/path/socket.sock", nil)
 
 	// Act
 	err := gw.StopRTSPPusher()
@@ -176,7 +180,7 @@ func TestRobotGateway_ConcurrentCalls(t *testing.T) {
 		}
 	}()
 
-	gw := NewRobotGateway(socketPath)
+	gw := NewRobotGateway(socketPath, nil)
 
 	// Act & Assert - concurrent calls should not panic
 	done := make(chan struct{})
@@ -207,7 +211,7 @@ func TestStartRTSPPusher_SocketAlreadyRemoved(t *testing.T) {
 	listener.Close()
 	os.Remove(socketPath)
 
-	gw := NewRobotGateway(socketPath)
+	gw := NewRobotGateway(socketPath, nil)
 
 	// Act
 	err = gw.StartRTSPPusher()
@@ -215,4 +219,254 @@ func TestStartRTSPPusher_SocketAlreadyRemoved(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to connect to socket")
+}
+
+// ========== gRPC Method Tests with MockControlClient ==========
+
+func TestConnectGRPC_Success(t *testing.T) {
+	// Arrange
+	mockClient := &transport.MockControlClient{}
+	mockClient.On("Connect", context.Background()).Return(nil)
+
+	gw := NewRobotGateway("", mockClient)
+
+	// Act
+	err := gw.ConnectGRPC(context.Background())
+
+	// Assert
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestConnectGRPC_Error(t *testing.T) {
+	// Arrange
+	mockClient := &transport.MockControlClient{}
+	expectedErr := errors.New("connection failed")
+	mockClient.On("Connect", context.Background()).Return(expectedErr)
+
+	gw := NewRobotGateway("", mockClient)
+
+	// Act
+	err := gw.ConnectGRPC(context.Background())
+
+	// Assert
+	assert.Error(t, err)
+	assert.Equal(t, expectedErr, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestConnectGRPC_NilClient(t *testing.T) {
+	// Arrange
+	gw := NewRobotGateway("", nil)
+
+	// Act
+	err := gw.ConnectGRPC(context.Background())
+
+	// Assert
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "control client not configured")
+}
+
+func TestStartVelocityStream_Success(t *testing.T) {
+	// Arrange
+	mockClient := &transport.MockControlClient{}
+	mockClient.On("StartVelocityStream", context.Background()).Return(nil)
+
+	gw := NewRobotGateway("", mockClient)
+
+	// Act
+	err := gw.StartVelocityStream(context.Background())
+
+	// Assert
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestStartVelocityStream_NilClient(t *testing.T) {
+	// Arrange
+	gw := NewRobotGateway("", nil)
+
+	// Act
+	err := gw.StartVelocityStream(context.Background())
+
+	// Assert
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "control client not configured")
+}
+
+func TestSendVelocityCommand_Success(t *testing.T) {
+	// Arrange
+	mockClient := &transport.MockControlClient{}
+	cmd := &pb.VelocityCommand{
+		Linear:  &pb.Vector3{X: 1.0, Y: 0.0, Z: 0.0},
+		Angular: &pb.Vector3{X: 0.0, Y: 0.0, Z: 0.5},
+	}
+	mockClient.On("SendVelocityCommand", cmd).Return(nil)
+
+	gw := NewRobotGateway("", mockClient)
+
+	// Act
+	err := gw.SendVelocityCommand(cmd)
+
+	// Assert
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestSendVelocityCommand_NilClient(t *testing.T) {
+	// Arrange
+	gw := NewRobotGateway("", nil)
+
+	// Act
+	err := gw.SendVelocityCommand(&pb.VelocityCommand{})
+
+	// Assert
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "control client not configured")
+}
+
+func TestCloseVelocityStream_Success(t *testing.T) {
+	// Arrange
+	mockClient := &transport.MockControlClient{}
+	expectedResp := &pb.ControlResponse{Success: true}
+	mockClient.On("CloseVelocityStream").Return(expectedResp, nil)
+
+	gw := NewRobotGateway("", mockClient)
+
+	// Act
+	resp, err := gw.CloseVelocityStream()
+
+	// Assert
+	assert.NoError(t, err)
+	assert.Equal(t, expectedResp, resp)
+	mockClient.AssertExpectations(t)
+}
+
+func TestCloseVelocityStream_NilClient(t *testing.T) {
+	// Arrange
+	gw := NewRobotGateway("", nil)
+
+	// Act
+	resp, err := gw.CloseVelocityStream()
+
+	// Assert
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "control client not configured")
+}
+
+func TestClose_Success(t *testing.T) {
+	// Arrange
+	mockClient := &transport.MockControlClient{}
+	mockClient.On("Close").Return(nil)
+
+	gw := NewRobotGateway("", mockClient)
+
+	// Act
+	err := gw.Close()
+
+	// Assert
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestClose_NilClient(t *testing.T) {
+	// Arrange
+	gw := NewRobotGateway("", nil)
+
+	// Act
+	err := gw.Close()
+
+	// Assert
+	assert.NoError(t, err) // Should not error when client is nil
+}
+
+// ========== MockRobotGateway Usage Examples ==========
+
+func TestMockRobotGateway_DefaultBehavior(t *testing.T) {
+	// Arrange
+	mock := NewMockRobotGateway()
+
+	// Act & Assert - default implementations should succeed
+	assert.NoError(t, mock.StartRTSPPusher())
+	assert.NoError(t, mock.StopRTSPPusher())
+	assert.NoError(t, mock.ConnectGRPC(context.Background()))
+	assert.NoError(t, mock.StartVelocityStream(context.Background()))
+	assert.NoError(t, mock.SendVelocityCommand(&pb.VelocityCommand{}))
+
+	resp, err := mock.CloseVelocityStream()
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	assert.NoError(t, mock.Close())
+
+	// Verify call tracking
+	assert.True(t, mock.StartRTSPPusherCalled)
+	assert.True(t, mock.StopRTSPPusherCalled)
+	assert.True(t, mock.ConnectGRPCCalled)
+	assert.True(t, mock.StartVelocityStreamCalled)
+	assert.True(t, mock.SendVelocityCommandCalled)
+	assert.True(t, mock.CloseVelocityStreamCalled)
+	assert.True(t, mock.CloseCalled)
+}
+
+func TestMockRobotGateway_CustomBehavior(t *testing.T) {
+	// Arrange
+	mock := NewMockRobotGateway()
+	expectedErr := errors.New("custom error")
+	mock.StartRTSPPusherFunc = func() error {
+		return expectedErr
+	}
+
+	// Act
+	err := mock.StartRTSPPusher()
+
+	// Assert
+	assert.Equal(t, expectedErr, err)
+	assert.True(t, mock.StartRTSPPusherCalled)
+}
+
+func TestMockRobotGateway_CapturedArguments(t *testing.T) {
+	// Arrange
+	mock := NewMockRobotGateway()
+	cmd := &pb.VelocityCommand{
+		Linear:  &pb.Vector3{X: 2.0, Y: 1.0, Z: 0.0},
+		Angular: &pb.Vector3{X: 0.0, Y: 0.0, Z: 0.75},
+	}
+
+	// Act
+	_ = mock.SendVelocityCommand(cmd)
+
+	// Assert
+	assert.Equal(t, cmd, mock.LastVelocityCommand)
+}
+
+func TestMockRobotGateway_Reset(t *testing.T) {
+	// Arrange
+	mock := NewMockRobotGateway()
+	_ = mock.StartRTSPPusher()
+	_ = mock.SendVelocityCommand(&pb.VelocityCommand{Linear: &pb.Vector3{X: 1.0}})
+
+	// Act
+	mock.Reset()
+
+	// Assert
+	assert.False(t, mock.StartRTSPPusherCalled)
+	assert.False(t, mock.SendVelocityCommandCalled)
+	assert.Nil(t, mock.LastVelocityCommand)
+}
+
+func TestMockRobotGateway_Reset_Multiple(t *testing.T) {
+	// Arrange
+	mock := NewMockRobotGateway()
+	_ = mock.StartRTSPPusher()
+	_ = mock.SendVelocityCommand(&pb.VelocityCommand{Linear: &pb.Vector3{X: 1.0}})
+
+	// Act
+	mock.Reset()
+
+	// Assert
+	assert.False(t, mock.StartRTSPPusherCalled)
+	assert.False(t, mock.SendVelocityCommandCalled)
+	assert.Nil(t, mock.LastVelocityCommand)
 }

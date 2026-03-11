@@ -11,6 +11,8 @@ import (
 )
 
 type RobotGatewayInterface interface {
+	// Send Command to ROS Node via tcp socket
+	// TODO: maybe change to gRPC
 	StartRTSPPusher() error
 	StopRTSPPusher() error
 
@@ -120,15 +122,7 @@ func (r *RobotGateway) SendVelocityCommand(cmd *pb.VelocityCommand) error {
 	if r.controlClient == nil {
 		return fmt.Errorf("control client not configured")
 	}
-
-	err := r.controlClient.SendVelocityCommand(cmd)
-	if err != nil {
-		fmt.Printf("SendVelocityCommand error: %v\n", err)
-		return err
-	}
-
-	fmt.Println("Velocity command sent successfully")
-	return nil
+	return r.controlClient.SendVelocityCommand(cmd)
 }
 
 func (r *RobotGateway) CloseVelocityStream() (*pb.ControlResponse, error) {

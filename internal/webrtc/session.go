@@ -4,8 +4,12 @@ import (
 	"SyncAI-WebRTC-Worker/internal/gateway"
 	"SyncAI-WebRTC-Worker/internal/pb"
 	"SyncAI-WebRTC-Worker/internal/transport"
+	"SyncAI-WebRTC-Worker/internal/webrtc/actions"
+	"SyncAI-WebRTC-Worker/internal/webrtc/actions/commands"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -75,7 +79,7 @@ func CreateSession(ctx context.Context, offerSDP string, opts SessionOptions) (s
 
 		// setting forward websocket messages to data channel
 		trans.OnMessage(func(data []byte) {
-			fmt.Printf("Received message from WebSocket: %s\n", string(data))
+			log.Printf("Received message from WebSocket: %s\n", string(data))
 		})
 	}
 
@@ -86,19 +90,20 @@ func CreateSession(ctx context.Context, offerSDP string, opts SessionOptions) (s
 			return "", "", fmt.Errorf("failed to connect gRPC: %w", err)
 		}
 
-		if err := session.RobotGateway.StartVelocityStream(context.Background()); err != nil {
+		if err := session.RobotGateway.StartVelocityStream(session.ctx); err != nil {
 			session.cleanup()
 			return "", "", fmt.Errorf("failed to start velocity stream: %w", err)
 		}
 	}
 
+	// dataChannel for receiving control messages
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		session.mu.Lock()
 		session.DC = dc
 		session.mu.Unlock()
 
 		dc.OnOpen(func() {
-			fmt.Printf("DataChannel '%s' opened\n", dc.Label())
+			log.Printf("DataChannel '%s' opened\n", dc.Label())
 		})
 
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -106,13 +111,11 @@ func CreateSession(ctx context.Context, offerSDP string, opts SessionOptions) (s
 		})
 
 		dc.OnClose(func() {
-			fmt.Printf("DataChannel '%s' closed\n", dc.Label())
+			log.Printf("DataChannel '%s' closed\n", dc.Label())
 		})
 
 	})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		fmt.Printf("Connection State: %s\n", state.String())
-
 		switch state {
 		case webrtc.PeerConnectionStateDisconnected, webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
 			if session.RobotGateway != nil {
@@ -121,7 +124,6 @@ func CreateSession(ctx context.Context, offerSDP string, opts SessionOptions) (s
 		}
 	})
 
-	// setting remote Description
 	offer := webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  offerSDP,
@@ -169,65 +171,104 @@ func DeleteSession(sessionID string) error {
 }
 
 func (s *Session) handleMessage(data []byte) {
-	msg, err := ParseMessage(data)
+	msg, err := actions.ParseMessage(data)
 	if err != nil {
-		fmt.Printf("Failed to parse message: %v\n", err)
+		log.Printf("Failed to parse message: %v\n", err)
 		return
 	}
 
 	switch msg.Action {
-	case ActionTypeControl:
+	case actions.ActionTypeControl:
 		s.handleControl(msg)
-	case ActionTypeCommand:
+	case actions.ActionTypeTask:
 		s.handleCommand(msg)
 	default:
-		fmt.Printf("Unknown action type: %s\n", msg.Action)
+		log.Printf("Unknown action type: %s\n", msg.Action)
 	}
 }
 
-func (s *Session) handleControl(msg *BaseMessage) {
+func (s *Session) handleControl(msg *actions.BaseMessage) {
 	payload, err := msg.ParseControlPayload()
 	if err != nil {
-		fmt.Printf("Failed to parse velocity: %v\n", err)
+		log.Printf("Failed to parse velocity: %v\n", err)
 		return
 	}
 
 	if s.RobotGateway == nil {
-		fmt.Println("RobotGateway not configured")
+		log.Printf("RobotGateway not configured\n")
 		return
 	}
 
 	cmd := &pb.VelocityCommand{
 		Linear: &pb.Vector3{
-			X: payload.Linear[0],
-			Y: payload.Linear[1],
-			Z: payload.Linear[2],
+			X: payload.Linear.X,
+			Y: payload.Linear.Y,
+			Z: payload.Linear.Z,
 		},
 		Angular: &pb.Vector3{
-			X: payload.Angular[0],
-			Y: payload.Angular[1],
-			Z: payload.Angular[2],
+			X: payload.Angular.X,
+			Y: payload.Angular.Y,
+			Z: payload.Angular.Z,
 		},
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	fmt.Println("Ready to send cmd to RobotGateway")
 	if err := s.RobotGateway.SendVelocityCommand(cmd); err != nil {
-		fmt.Printf("Failed to send velocity command: %v\n", err)
+		log.Printf("Failed to send velocity command: %v\n", err)
 	}
 }
 
-func (s *Session) handleCommand(msg *BaseMessage) {
+func (s *Session) handleCommand(msg *actions.BaseMessage) {
 	payload, err := msg.ParseCommandPayload()
 	if err != nil {
-		fmt.Printf("Failed to parse command: %v\n", err)
+		log.Printf("Failed to parse command: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Received command: %s, params: %v\n", payload.Name, payload.Params)
+	for _, step := range payload.Steps {
+
+		if s.Transport == nil {
+			log.Printf("Transport not configured\n")
+			return
+		}
+
+		// if step type is wait, parse params and sleep for the specified duration
+		if step.Type == commands.CommandTypeWait {
+			var waitParams commands.WaitParams
+			if err := json.Unmarshal(step.Params, &waitParams); err != nil {
+				log.Printf("Failed to parse wait params: %v\n", err)
+				return
+			}
+
+			duration := time.Duration(waitParams.DurationSec * float64(time.Second))
+			time.Sleep(duration)
+			return
+		}
+
+		request, err := commands.GenerateCommandRequest(step.Type, step.Params)
+		if err != nil {
+			log.Printf("Failed to generate command request: %v\n", err)
+			return
+		}
+
+		// serialize request to JSON bytes
+		requestBytes, err := json.Marshal(request)
+		if err != nil {
+			log.Printf("Failed to serialize command request: %v\n", err)
+			return
+		}
+
+		if err := s.Transport.Send(requestBytes); err != nil {
+			log.Printf("Failed to send command request: %v\n", err)
+			return
+		}
+	}
 }
 
 func (s *Session) cleanup() {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.Transport != nil {
 		s.Transport.Close()
 	}
