@@ -1,0 +1,45 @@
+name: Publish Docker Image
+
+on:
+  push:
+    branches:
+      - main
+      - stage
+      - dev
+    paths:
+      - 'Dockerfile'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: syncai-webrtc-worker-base
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY}}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+    
+      - name: Print Docker image information
+        run: |
+          echo "Docker image: ${{ env.REGISTRY}}/${{ github.repository_owner }}/${{ env.IMAGE_NAME}}:latest"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY}}/${{ github.repository_owner }}/${{ env.IMAGE_NAME}}:latest
+    
+      

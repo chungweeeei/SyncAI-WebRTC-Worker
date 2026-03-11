@@ -1,0 +1,83 @@
+package proc
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/go-gst/go-gst/gst"
+)
+
+type VideoGStreamerPipeline struct {
+	pipeline Pipeline
+	mu       sync.Mutex
+	closed   bool
+}
+
+// BuildVideoPipelineString 建立視訊 pipeline 字串
+func BuildVideoPipelineString(videoPort, audioPort int) string {
+	return fmt.Sprintf(
+		"v4l2src device=/dev/syncai_camera do-timestamp=true "+
+			"! videoconvert "+
+			"! video/x-raw,width=640,height=480,framerate=30/1 "+
+			"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 leaky=downstream "+
+			"! nvvidconv "+
+			"! video/x-raw(memory:NVMM),format=NV12 "+
+			"! nvv4l2h264enc bitrate=4000000 insert-sps-pps=true "+
+			"! h264parse "+
+			"! rtph264pay config-interval=1 pt=96 "+
+			"! udpsink host=127.0.0.1 port=%d sync=true "+
+			"alsasrc device=hw:0,0 do-timestamp=true "+
+			"! audioconvert "+
+			"! audioresample "+
+			"! audio/x-raw,rate=48000,channels=2 "+
+			"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 "+
+			"! opusenc bitrate=64000 "+
+			"! rtpopuspay pt=111 "+
+			"! udpsink host=127.0.0.1 port=%d sync=true",
+		videoPort, audioPort)
+}
+
+// NewVideoGStreamerPipeline 使用預設的 PipelineFactory
+func NewVideoGStreamerPipeline(videoPort, audioPort int) (*VideoGStreamerPipeline, error) {
+	return NewVideoGStreamerPipelineWithFactory(videoPort, audioPort, defaultFactory)
+}
+
+// NewVideoGStreamerPipelineWithFactory 允許注入 PipelineFactory（用於測試）
+func NewVideoGStreamerPipelineWithFactory(videoPort, audioPort int, factory PipelineFactory) (*VideoGStreamerPipeline, error) {
+	pipelineStr := BuildVideoPipelineString(videoPort, audioPort)
+
+	pipeline, err := factory.NewPipelineFromString(pipelineStr)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pipeline.SetState(gst.StatePlaying); err != nil {
+		return nil, err
+	}
+
+	return &VideoGStreamerPipeline{
+		pipeline: pipeline,
+	}, nil
+}
+
+func (g *VideoGStreamerPipeline) Close() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.closed {
+		return nil
+	}
+	g.closed = true
+
+	if g.pipeline != nil {
+		g.pipeline.SetState(gst.StateNull)
+		g.pipeline.Unref()
+	}
+	return nil
+}
+
+func (g *VideoGStreamerPipeline) IsClosed() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.closed
+}
