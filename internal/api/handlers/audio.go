@@ -22,8 +22,9 @@ func (h *Handler) HandleAudioWHIP(c *gin.Context) {
 	}
 
 	opts := rtc.AudioSessionOptions{
-		RTPPort:  h.GStreamerCfg.AudioRTPPort,
-		AudioCfg: h.GStreamerCfg.AudioConfig,
+		RTPPort:    h.GStreamerCfg.AudioRTPPort,
+		AudioCfg:   h.GStreamerCfg.AudioConfig,
+		ICEServers: h.GStreamerCfg.ICEServers,
 	}
 	sessionID, answerSDP, err := h.SessionManager.CreateAudioSession(string(offerSDP), opts)
 	if err != nil {

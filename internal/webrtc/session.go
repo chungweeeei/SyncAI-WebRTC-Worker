@@ -37,6 +37,7 @@ type SessionOptions struct {
 	WebSocketURL string
 	Dialer       transport.Dialer
 	RobotGateway gateway.RobotGatewayInterface
+	ICEServers   []webrtc.ICEServer
 }
 
 func CreateSession(ctx context.Context, offerSDP string, opts SessionOptions) (string, string, error) {
@@ -44,11 +45,7 @@ func CreateSession(ctx context.Context, offerSDP string, opts SessionOptions) (s
 	// create a new peer connection
 	pc, err := webrtc.NewPeerConnection(
 		webrtc.Configuration{
-			ICEServers: []webrtc.ICEServer{
-				{
-					URLs: []string{"stun:stun.l.google.com:19302"},
-				},
-			},
+			ICEServers: opts.ICEServers,
 		},
 	)
 	if err != nil {
@@ -233,6 +230,7 @@ func (s *Session) handleCommand(msg *actions.BaseMessage) {
 		}
 
 		// if step type is wait, parse params and sleep for the specified duration
+		log.Printf("Handling command step: type=%s, params=%s\n", step.Type, string(step.Params))
 		if step.Type == commands.CommandTypeWait {
 			var waitParams commands.WaitParams
 			if err := json.Unmarshal(step.Params, &waitParams); err != nil {
@@ -258,7 +256,8 @@ func (s *Session) handleCommand(msg *actions.BaseMessage) {
 			return
 		}
 
-		if err := s.Transport.Send(requestBytes); err != nil {
+		_, err = s.Transport.SendAndReceive(requestBytes, 10*time.Second)
+		if err != nil {
 			log.Printf("Failed to send command request: %v\n", err)
 			return
 		}

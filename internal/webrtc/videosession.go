@@ -35,6 +35,7 @@ type VideoSessionOptions struct {
 	VideoSource     config.VideoSourceType
 	PCFactory       PeerConnectionFactory
 	PipelineFactory proc.PipelineFactory
+	ICEServers      []webrtc.ICEServer
 }
 
 func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, string, error) {
@@ -51,11 +52,7 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
 
 	rtcPC, err := api.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-		},
+		ICEServers: opts.ICEServers,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create peer connection: %w", err)

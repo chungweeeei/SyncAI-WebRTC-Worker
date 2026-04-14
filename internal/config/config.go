@@ -4,6 +4,9 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
+
+	"github.com/pion/webrtc/v4"
 )
 
 type AppConfig struct {
@@ -56,6 +59,7 @@ type GStreamerConfig struct {
 	VideoAudioRTPPort int
 	VideoSource       VideoSourceType
 	AudioConfig       AudioConfig
+	ICEServers        []webrtc.ICEServer
 }
 
 func NewGStreamerConfig() *GStreamerConfig {
@@ -90,6 +94,7 @@ func NewGStreamerConfig() *GStreamerConfig {
 		AudioConfig: AudioConfig{
 			AudioVolume: audioVolume,
 		},
+		ICEServers: parseICEServers(),
 	}
 }
 
@@ -98,6 +103,40 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// parseICEServers parses ICE server configuration from environment variables.
+//
+// STUN_SERVERS: comma-separated STUN URLs (default: stun:stun.l.google.com:19302)
+// TURN_SERVERS: comma-separated TURN URLs
+// TURN_USERNAME: username for TURN authentication
+// TURN_PASSWORD: password for TURN authentication
+func parseICEServers() []webrtc.ICEServer {
+	var servers []webrtc.ICEServer
+
+	stunURLs := getEnv("STUN_SERVERS", "stun:stun.l.google.com:19302")
+	if stunURLs != "" {
+		urls := strings.Split(stunURLs, ",")
+		for i := range urls {
+			urls[i] = strings.TrimSpace(urls[i])
+		}
+		servers = append(servers, webrtc.ICEServer{URLs: urls})
+	}
+
+	turnURLs := getEnv("TURN_SERVERS", "")
+	if turnURLs != "" {
+		urls := strings.Split(turnURLs, ",")
+		for i := range urls {
+			urls[i] = strings.TrimSpace(urls[i])
+		}
+		servers = append(servers, webrtc.ICEServer{
+			URLs:       urls,
+			Username:   getEnv("TURN_USERNAME", ""),
+			Credential: getEnv("TURN_PASSWORD", ""),
+		})
+	}
+
+	return servers
 }
 
 func detectVideoSource() VideoSourceType {

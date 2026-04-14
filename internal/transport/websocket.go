@@ -2,18 +2,21 @@ package transport
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 // WebSocketTransport implements the Transport interface using a WebSocket connection.
 type WebSocketTransport struct {
-	conn      *websocket.Conn
-	onMessage MessageHandler
-	mu        sync.Mutex
-	handleMu  sync.RWMutex
-	done      chan struct{}
+	conn       *websocket.Conn
+	onMessage  MessageHandler
+	mu         sync.Mutex
+	handleMu   sync.RWMutex
+	done       chan struct{}
+	responseCh chan []byte
 }
 
 // WebSocketDialer implements the Dialer interface for WebSocket connections.
@@ -30,8 +33,9 @@ func (d *WebSocketDialer) Dial(ctx context.Context, url string) (Transport, erro
 	}
 
 	t := &WebSocketTransport{
-		conn: conn,
-		done: make(chan struct{}),
+		conn:       conn,
+		done:       make(chan struct{}),
+		responseCh: make(chan []byte, 1),
 	}
 
 	go t.readLoop()
@@ -39,10 +43,30 @@ func (d *WebSocketDialer) Dial(ctx context.Context, url string) (Transport, erro
 	return t, nil
 }
 
-func (t *WebSocketTransport) Send(data []byte) error {
+func (t *WebSocketTransport) SendAndReceive(data []byte, timeout time.Duration) ([]byte, error) {
+	// clear previous data in channel
+	select {
+	case <-t.responseCh:
+	default:
+	}
+
+	// send request
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.conn.WriteMessage(websocket.BinaryMessage, data)
+	err := t.conn.WriteMessage(websocket.BinaryMessage, data)
+	t.mu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to send: %w", err)
+	}
+
+	// waiting for response
+	select {
+	case resp := <-t.responseCh:
+		return resp, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("timeout waiting for response")
+	case <-t.done:
+		return nil, fmt.Errorf("connection closed")
+	}
 }
 
 func (t *WebSocketTransport) OnMessage(handler MessageHandler) {
@@ -66,6 +90,13 @@ func (t *WebSocketTransport) readLoop() {
 			if err != nil {
 				return
 			}
+
+			// send result to response channel if waiting
+			select {
+			case t.responseCh <- data:
+			default:
+			}
+
 			t.handleMu.RLock()
 			handler := t.onMessage
 			t.handleMu.RUnlock()

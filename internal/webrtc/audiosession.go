@@ -28,6 +28,7 @@ type AudioSessionOptions struct {
 	AudioCfg        config.AudioConfig
 	PCFactory       PeerConnectionFactory
 	PipelineFactory proc.PipelineFactory
+	ICEServers      []webrtc.ICEServer
 }
 
 func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, string, error) {
@@ -37,11 +38,7 @@ func CreateAudioSession(offerSDP string, opts AudioSessionOptions) (string, stri
 	}
 
 	pc, err := factory.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-		},
+		ICEServers: opts.ICEServers,
 	})
 	if err != nil {
 		return "", "", err

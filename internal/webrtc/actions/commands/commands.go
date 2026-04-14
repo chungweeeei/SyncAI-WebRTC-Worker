@@ -123,7 +123,7 @@ func GenerateCommandRequest(cmdType CommandType, rawData json.RawMessage) (*Comm
 		cmdReq.Op = "call_service"
 		cmdReq.Service = "/set_angle_tag"
 		cmdReq.Type = "custom_msgs/srv/SetFloat"
-		cmdReq.Args.Data = params.Angle
+		cmdReq.Args.Data = float64(params.Angle)
 
 		return &cmdReq, nil
 

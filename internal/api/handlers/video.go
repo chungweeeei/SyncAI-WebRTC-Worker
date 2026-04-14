@@ -26,6 +26,7 @@ func (h *Handler) HandleVideoWHEP(c *gin.Context) {
 		VideoRTPPort: h.GStreamerCfg.VideoRTPPort,
 		AudioRTPPort: h.GStreamerCfg.VideoAudioRTPPort,
 		VideoSource:  h.GStreamerCfg.VideoSource,
+		ICEServers:   h.GStreamerCfg.ICEServers,
 	}
 
 	sessionID, answerSDP, err := h.SessionManager.CreateVideoSession(string(offerSDP), opts)

@@ -1,11 +1,14 @@
 package transport
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type MessageHandler func(data []byte)
 
 type Transport interface {
-	Send(data []byte) error
+	SendAndReceive(data []byte, timeout time.Duration) ([]byte, error)
 	OnMessage(handler MessageHandler)
 	Close() error
 }

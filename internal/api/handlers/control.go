@@ -30,6 +30,7 @@ func (h *Handler) HandleControlWHIP(c *gin.Context) {
 		WebSocketURL: "ws://127.0.0.1:9090",
 		Dialer:       transport.NewWebSocketDialer(),
 		RobotGateway: h.RobotGateway,
+		ICEServers:   h.GStreamerCfg.ICEServers,
 	}
 
 	sessionID, answerSDP, err := h.SessionManager.CreateSession(context.Background(), string(offerSDP), opts)
