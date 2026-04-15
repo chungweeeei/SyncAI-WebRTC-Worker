@@ -5,6 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: syncai-webrtc-worker
+    restart: unless-stopped
     ports:
       - "18000:18000"
 

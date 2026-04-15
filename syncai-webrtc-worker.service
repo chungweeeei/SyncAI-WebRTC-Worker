@@ -1,0 +1,34 @@
+[Unit]
+Description=SyncAI WebRTC Worker
+Documentation=https://github.com/AISyncRobotics/SyncAI-WebRTC-Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unitree
+Group=unitree
+WorkingDirectory=/opt/syncai-webrtc-worker
+ExecStart=/opt/syncai-webrtc-worker/syncai-webrtc-worker
+Restart=on-failure
+RestartSec=5
+
+# Graceful shutdown
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+# Environment
+EnvironmentFile=-/opt/syncai-webrtc-worker/.env
+
+# Device access (camera)
+SupplementaryGroups=video
+
+
+# Logging (stdout/stderr -> journald)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=syncai-webrtc-worker
+
+[Install]
+WantedBy=multi-user.target

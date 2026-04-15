@@ -52,9 +52,14 @@ jobs:
                   exit 1
                 fi
 
-            - name: Upload binary
+            - name: Package binary and service file
+              run: |
+                cp syncai-webrtc-worker.service dist/
+                tar -czf syncai-webrtc-worker-${{ steps.date.outputs.BUILD_DATE }}.tar.gz -C dist .
+
+            - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
                 name: syncai-webrtc-worker-${{ steps.date.outputs.BUILD_DATE }}
-                path: dist/
+                path: syncai-webrtc-worker-${{ steps.date.outputs.BUILD_DATE }}.tar.gz
                 retention-days: 7

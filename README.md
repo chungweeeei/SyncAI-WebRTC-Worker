@@ -91,6 +91,56 @@ Video source is auto-detected:
 
 The service starts on port `:18000`.
 
+## Deployment (systemd)
+
+A `syncai-webrtc-worker.service` file is included for deploying the binary as a systemd service.
+
+### 1. Build the binary
+
+```bash
+# Using Docker (cross-compile for target device)
+docker-compose up build-service
+# Binary output: ./dist/syncai-webrtc-worker
+```
+
+### 2. Deploy to target device
+
+```bash
+# Create deployment directory
+sudo mkdir -p /opt/syncai-webrtc-worker
+
+# Copy binary
+sudo cp dist/syncai-webrtc-worker /opt/syncai-webrtc-worker/
+
+# Copy .env config (optional, if using environment file)
+sudo cp .env /opt/syncai-webrtc-worker/
+```
+
+### 3. Install and start the service
+
+```bash
+# Install service file
+sudo cp syncai-webrtc-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Enable (auto-start on boot) and start
+sudo systemctl enable syncai-webrtc-worker
+sudo systemctl start syncai-webrtc-worker
+```
+
+### 4. Manage the service
+
+```bash
+# Check status
+sudo systemctl status syncai-webrtc-worker
+
+# View logs (follow mode)
+journalctl -u syncai-webrtc-worker -f
+
+# Restart after updating binary
+sudo systemctl restart syncai-webrtc-worker
+```
+
 ## API Endpoints
 
 All endpoints require `Content-Type: application/sdp` with SDP Offer in the request body.
