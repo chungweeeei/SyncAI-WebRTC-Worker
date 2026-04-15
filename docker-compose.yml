@@ -1,9 +1,20 @@
 services:
-  build-service:
-    build: 
+  # Runtime image (multi-stage build)
+  syncai-webrtc-worker:
+    build:
       context: .
       dockerfile: Dockerfile
-    image: syncai-webrtc-worker-base
+    image: syncai-webrtc-worker
+    ports:
+      - "18000:18000"
+
+  # Local development: build binary to ./dist/ using host volume
+  build-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    image: syncai-webrtc-worker-builder
     volumes:
       - ./:/src
       - ./dist:/dist

@@ -8,12 +8,12 @@ A Go-based WebRTC worker service for robot control and real-time audio/video str
   - WHIP (WebRTC-HTTP Ingestion Protocol) for control commands and audio input
   - WHEP (WebRTC-HTTP Egress Protocol) for video output
 - **Robot Control**
-  - Velocity commands via gRPC streaming
+  - Velocity commands via gRPC streaming (`127.0.0.1:50052`)
   - Real-time control messages via DataChannel
-  - Task/command execution system (Move, Head, TTS, Wait)
-- **Multiple Video Sources**
-  - Direct camera access (`/dev/video0`)
-  - ROS node integration (UDP/RTSP)
+  - Task/command execution system (Move, Head, TTS, Wait, StandUp, SitDown)
+- **Support Multiple Video Sources**
+  - Direct camera access (`/dev/syncai_camera`)
+  - ROS node integration (UDP/RTSP via Unix socket `/tmp/rtsp_pusher.sock`)
 - **Audio Processing**
   - WHIP audio input
   - GStreamer audio processing with volume control
@@ -28,7 +28,7 @@ A Go-based WebRTC worker service for robot control and real-time audio/video str
 | Web Framework | Gin |
 | RPC | gRPC + Protocol Buffers |
 | WebSocket | Gorilla WebSocket |
-| Containerization | Docker |
+| Containerization | Docker (multi-stage build) |
 
 ## Requirements
 
@@ -41,10 +41,12 @@ A Go-based WebRTC worker service for robot control and real-time audio/video str
 ### Build with Docker
 
 ```bash
+# Build runtime image (multi-stage)
+docker-compose up syncai-webrtc-worker
+
+# Build binary to ./dist/ (local development)
 docker-compose up build-service
 ```
-
-Build output will be located at `./dist/syncai-webrtc-worker`
 
 ### Local Build
 
@@ -72,9 +74,13 @@ Configure via environment variables or `.env` file:
 | `VIDEO_RTP_PORT` | Video RTP port | `5006` |
 | `VIDEO_AUDIO_RTP_PORT` | Video audio track RTP port | `5007` |
 | `AUDIO_VOLUME` | Audio volume (0.0-1.0) | `0.2` |
+| `STUN_SERVERS` | Comma-separated STUN server URLs | `stun:stun.l.google.com:19302` |
+| `TURN_SERVERS` | Comma-separated TURN server URLs | |
+| `TURN_USERNAME` | TURN authentication username | |
+| `TURN_PASSWORD` | TURN authentication password | |
 
 Video source is auto-detected:
-- Uses camera mode if `/dev/video0` exists
+- Uses camera mode if `/dev/syncai_camera` exists
 - Otherwise uses ROS mode
 
 ## Running
@@ -86,6 +92,10 @@ Video source is auto-detected:
 The service starts on port `:18000`.
 
 ## API Endpoints
+
+All endpoints require `Content-Type: application/sdp` with SDP Offer in the request body.
+
+CORS is enabled for `https://*`, `http://*`, and `http://localhost:5173`.
 
 ### Control (WHIP)
 
@@ -107,8 +117,6 @@ The service starts on port `:18000`.
 |--------|------|-------------|
 | `POST` | `/video/whep` | Create video output session |
 | `DELETE` | `/video/whep/:id` | Close video session |
-
-All endpoints require `Content-Type: application/sdp` with SDP Offer in the request body.
 
 ## DataChannel Message Format
 
@@ -142,6 +150,8 @@ All endpoints require `Content-Type: application/sdp` with SDP Offer in the requ
 }
 ```
 
+Supported task types: `MOVE`, `HEAD`, `TTS`, `WAIT`, `STANDUP`, `SITDOWN`
+
 ## Project Structure
 
 ```
@@ -167,8 +177,23 @@ All endpoints require `Content-Type: application/sdp` with SDP Offer in the requ
 ## Testing
 
 ```bash
+# Run all tests
 go test ./...
+
+# Run with race detection
+go test -v -race ./...
+
+# Lint
+go vet ./...
 ```
+
+## CI/CD
+
+GitHub Actions workflows:
+
+- **test.yml** — Runs `go vet` and `go test -v -race ./...` on PRs to main/stage/dev
+- **build.yml** — Builds binary and runs smoke test on push to main/stage/dev
+- **publish-image.yml** — Publishes Docker image to GHCR on Dockerfile changes
 
 ## License
 
