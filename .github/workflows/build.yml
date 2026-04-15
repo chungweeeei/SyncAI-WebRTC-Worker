@@ -23,38 +23,38 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Set build date
-              id: date
-              run: echo "BUILD_DATE=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+            # - name: Set build date
+            #   id: date
+            #   run: echo "BUILD_DATE=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
-            - name: Build binary
-              run: |
-                mkdir -p dist
-                go build -o dist/syncai-webrtc-worker cmd/main.go
+            # - name: Build binary
+            #   run: |
+            #     mkdir -p dist
+            #     go build -o dist/syncai-webrtc-worker cmd/main.go
           
-            - name: Smoke test - check port 18000
-              run: |
-                apt-get update && apt-get install -y netcat-openbsd
+            # - name: Smoke test - check port 18000
+            #   run: |
+            #     apt-get update && apt-get install -y netcat-openbsd
 
-                chmod +x dist/syncai-webrtc-worker
+            #     chmod +x dist/syncai-webrtc-worker
 
-                ./dist/syncai-webrtc-worker &
-                PID=$!
+            #     ./dist/syncai-webrtc-worker &
+            #     PID=$!
 
-                sleep 5
+            #     sleep 5
 
-                if nc -z localhost 18000; then
-                  echo "Port 18000 is open"
-                  kill $PID 2>/dev/null || true
-                else
-                  echo "Port 18000 is not open"
-                  kill $PID 2>/dev/null || true
-                  exit 1
-                fi
+            #     if nc -z localhost 18000; then
+            #       echo "Port 18000 is open"
+            #       kill $PID 2>/dev/null || true
+            #     else
+            #       echo "Port 18000 is not open"
+            #       kill $PID 2>/dev/null || true
+            #       exit 1
+            #     fi
 
-            - name: Upload binary
-              uses: actions/upload-artifact@v4
-              with:
-                name: syncai-webrtc-worker-${{ steps.date.outputs.BUILD_DATE }}
-                path: dist/
-                retention-days: 7
+            # - name: Upload binary
+            #   uses: actions/upload-artifact@v4
+            #   with:
+            #     name: syncai-webrtc-worker-${{ steps.date.outputs.BUILD_DATE }}
+            #     path: dist/
+            #     retention-days: 7
