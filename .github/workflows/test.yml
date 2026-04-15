@@ -23,13 +23,13 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
             
-            # - name: Download dependencies
-            #   run: go mod download
+            - name: Download dependencies
+              run: go mod download
             
-            # - name: Run go vet
-            #   run: go vet ./...
+            - name: Run go vet
+              run: go vet ./...
             
-            # - name: Run tests
-            #   run: go test -v -race ./...
+            - name: Run tests
+              run: go test -v -race ./...
 
     

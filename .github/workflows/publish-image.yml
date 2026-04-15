@@ -6,8 +6,8 @@ on:
       - main
       - stage
       - dev
-    # paths:
-    #   - 'Dockerfile'
+    paths:
+      - 'Dockerfile'
 
 env:
   REGISTRY: ghcr.io
