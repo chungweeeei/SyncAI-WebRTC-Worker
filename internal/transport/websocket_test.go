@@ -87,13 +87,13 @@ func TestWebSocketDialer_Dial_InvalidScheme(t *testing.T) {
 	assert.Nil(t, transport)
 }
 
-func TestWebSocketTransport_Send_Success(t *testing.T) {
+func TestWebSocketTransport_SendAndReceive_Success(t *testing.T) {
 	// Arrange
-	receivedData := make(chan []byte, 1)
 	server := newTestWebSocketServer(t, func(conn *websocket.Conn) {
 		_, data, err := conn.ReadMessage()
 		if err == nil {
-			receivedData <- data
+			// Echo back the received data as a response
+			conn.WriteMessage(websocket.BinaryMessage, data)
 		}
 	})
 	defer server.Close()
@@ -105,27 +105,19 @@ func TestWebSocketTransport_Send_Success(t *testing.T) {
 
 	// Act
 	testData := []byte("hello world")
-	err = transport.Send(testData)
+	resp, err := transport.SendAndReceive(testData, 2*time.Second)
 
 	// Assert
 	require.NoError(t, err)
-
-	select {
-	case received := <-receivedData:
-		assert.Equal(t, testData, received)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for message")
-	}
+	assert.Equal(t, testData, resp)
 }
 
-func TestWebSocketTransport_Send_EmptyData(t *testing.T) {
+func TestWebSocketTransport_SendAndReceive_EmptyData(t *testing.T) {
 	// Arrange
 	server := newTestWebSocketServer(t, func(conn *websocket.Conn) {
-		for {
-			_, _, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
+		_, data, err := conn.ReadMessage()
+		if err == nil {
+			conn.WriteMessage(websocket.BinaryMessage, data)
 		}
 	})
 	defer server.Close()
@@ -136,10 +128,11 @@ func TestWebSocketTransport_Send_EmptyData(t *testing.T) {
 	defer transport.Close()
 
 	// Act
-	err = transport.Send([]byte{})
+	resp, err := transport.SendAndReceive([]byte{}, 2*time.Second)
 
 	// Assert
 	require.NoError(t, err)
+	assert.Empty(t, resp)
 }
 
 func TestWebSocketTransport_OnMessage_ReceivesData(t *testing.T) {
@@ -272,7 +265,7 @@ func TestWebSocketTransport_Close_SendAfterCloseFails(t *testing.T) {
 
 	// Act
 	transport.Close()
-	err = transport.Send([]byte("test"))
+	_, err = transport.SendAndReceive([]byte("test"), 1*time.Second)
 
 	// Assert
 	require.Error(t, err)
@@ -281,15 +274,16 @@ func TestWebSocketTransport_Close_SendAfterCloseFails(t *testing.T) {
 func TestTransportInterface_MockImplementation(t *testing.T) {
 	// Arrange
 	mockTransport := new(MockTransport)
-	mockTransport.On("Send", []byte("test")).Return(nil)
+	mockTransport.On("SendAndReceive", []byte("test"), mock.Anything).Return([]byte("response"), nil)
 	mockTransport.On("Close").Return(nil)
 	mockTransport.On("OnMessage", mock.Anything).Return()
 
 	// Act & Assert
 	var transport Transport = mockTransport
 
-	err := transport.Send([]byte("test"))
+	resp, err := transport.SendAndReceive([]byte("test"), 5*time.Second)
 	assert.NoError(t, err)
+	assert.Equal(t, []byte("response"), resp)
 
 	transport.OnMessage(func(data []byte) {})
 
@@ -315,18 +309,18 @@ func TestDialerInterface_MockImplementation(t *testing.T) {
 	mockDialer.AssertExpectations(t)
 }
 
-func TestWebSocketTransport_ConcurrentSend(t *testing.T) {
+func TestWebSocketTransport_ConcurrentSendAndReceive(t *testing.T) {
 	// Arrange
 	messageCount := 10
-	received := make(chan []byte, messageCount)
 
 	server := newTestWebSocketServer(t, func(conn *websocket.Conn) {
-		for i := 0; i < messageCount; i++ {
+		for {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
-			received <- data
+			// Echo back the data
+			conn.WriteMessage(websocket.BinaryMessage, data)
 		}
 	})
 	defer server.Close()
@@ -336,26 +330,10 @@ func TestWebSocketTransport_ConcurrentSend(t *testing.T) {
 	require.NoError(t, err)
 	defer transport.Close()
 
-	// Act - Send multiple messages concurrently
-	var wg sync.WaitGroup
+	// Act - Send multiple messages sequentially (SendAndReceive is request-response)
 	for i := 0; i < messageCount; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			transport.Send([]byte{byte(i)})
-		}(i)
-	}
-	wg.Wait()
-
-	// Assert
-	timeout := time.After(2 * time.Second)
-	receivedCount := 0
-	for receivedCount < messageCount {
-		select {
-		case <-received:
-			receivedCount++
-		case <-timeout:
-			t.Fatalf("Only received %d/%d messages", receivedCount, messageCount)
-		}
+		resp, err := transport.SendAndReceive([]byte{byte(i)}, 2*time.Second)
+		require.NoError(t, err)
+		assert.Equal(t, []byte{byte(i)}, resp)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 )
@@ -23,12 +24,12 @@ type mockTransport struct {
 // make sure mockTransport implements transport.Transport interface
 var _ transport.Transport = (*mockTransport)(nil)
 
-func (m *mockTransport) Send(data []byte) error {
+func (m *mockTransport) SendAndReceive(data []byte, timeout time.Duration) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sendCalled = true
 	m.sentData = data
-	return m.sendErr
+	return nil, m.sendErr
 }
 
 func (m *mockTransport) Close() error {

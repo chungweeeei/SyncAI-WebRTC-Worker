@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 )
@@ -13,9 +14,9 @@ type MockTransport struct {
 	mock.Mock
 }
 
-func (m *MockTransport) Send(data []byte) error {
-	args := m.Called(data)
-	return args.Error(0)
+func (m *MockTransport) SendAndReceive(data []byte, timeout time.Duration) ([]byte, error) {
+	args := m.Called(data, timeout)
+	return args.Get(0).([]byte), args.Error(1)
 }
 
 func (m *MockTransport) OnMessage(handler MessageHandler) {

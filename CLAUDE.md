@@ -42,6 +42,7 @@ sudo apt-get install -y pkg-config libgstreamer1.0-dev libgstreamer-plugins-base
 The service runs three independent WebRTC session types, each with its own endpoint:
 
 - **Control** (`POST /control/whip`) — DataChannel-based session. Client sends JSON messages with action type `CONTROL` (velocity commands → gRPC) or `TASK` (robot commands like MOVE, TTS → WebSocket).
+
 - **Audio** (`POST /audio/whip`) — WHIP session receiving audio tracks from the client, piped through GStreamer for processing.
 - **Video** (`POST /video/whep`) — WHEP session sending video+audio tracks to the client from either a physical camera (`/dev/syncai_camera`) or a ROS UDP source.
 
