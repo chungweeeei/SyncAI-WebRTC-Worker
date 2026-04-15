@@ -6,6 +6,9 @@ on:
             - main
             - stage
             - dev
+        paths-ignore:
+            - 'Dockerfile'
+            - 'docker-compose.yml'
 
 jobs:
     test:
