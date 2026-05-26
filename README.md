@@ -41,12 +41,16 @@ A Go-based WebRTC worker service for robot control and real-time audio/video str
 ### Build with Docker
 
 ```bash
-# Build runtime image (multi-stage)
-docker-compose up syncai-webrtc-worker
-
-# Build binary to ./dist/ (local development)
+# Build binary to ./dist/ (uses the builder stage, mirrors CI)
 docker-compose up build-service
+
+# Build & run the runtime image locally (for smoke testing)
+docker-compose up syncai-webrtc-worker
 ```
+
+> The runtime image is intended for local smoke testing only. Production
+> deployments use the binary produced by `build-service` (or by CI) and run it
+> under systemd — see [Deployment](#deployment-systemd).
 
 ### Local Build
 
@@ -93,42 +97,53 @@ The service starts on port `:18000`.
 
 ## Deployment (systemd)
 
-A `syncai-webrtc-worker.service` file is included for deploying the binary as a systemd service.
+The service is deployed as a systemd unit on the target device. The recommended
+flow is to consume the tarball produced by CI (`build.yml`, see [CI/CD](#cicd))
+and hand it to `scripts/deploy.sh`, which fully automates the install.
 
-### 1. Build the binary
+### Recommended: deploy from CI tarball
+
+1. Download the `syncai-webrtc-worker-<timestamp>.tar.gz` artifact from the
+   `Build` workflow run on GitHub Actions, and copy it to the target device.
+2. On the target device, run the deploy script:
+
+   ```bash
+   ./scripts/deploy.sh syncai-webrtc-worker-<timestamp>.tar.gz
+   ```
+
+   The script will:
+   - Stop the service if it is already running
+   - Extract the tarball to `/opt/syncai-webrtc-worker/`
+   - Install `syncai-webrtc-worker.service` into `/etc/systemd/system/`
+   - `daemon-reload`, `enable`, and `start` the service
+   - Verify the service is active and print status / log hints on failure
+
+3. (Optional) Drop a `.env` file at `/opt/syncai-webrtc-worker/.env` to override
+   defaults — the unit file picks it up via `EnvironmentFile=`.
+
+### Manual install (alternative)
+
+If you have a locally built binary instead of the CI tarball:
 
 ```bash
-# Using Docker (cross-compile for target device)
+# 1. Build the binary
 docker-compose up build-service
 # Binary output: ./dist/syncai-webrtc-worker
-```
 
-### 2. Deploy to target device
-
-```bash
-# Create deployment directory
+# 2. Copy artifacts to /opt/syncai-webrtc-worker/
 sudo mkdir -p /opt/syncai-webrtc-worker
-
-# Copy binary
 sudo cp dist/syncai-webrtc-worker /opt/syncai-webrtc-worker/
+sudo cp syncai-webrtc-worker.service /opt/syncai-webrtc-worker/
+sudo cp .env /opt/syncai-webrtc-worker/   # optional
 
-# Copy .env config (optional, if using environment file)
-sudo cp .env /opt/syncai-webrtc-worker/
-```
-
-### 3. Install and start the service
-
-```bash
-# Install service file
+# 3. Install and start the systemd service
 sudo cp syncai-webrtc-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
-
-# Enable (auto-start on boot) and start
 sudo systemctl enable syncai-webrtc-worker
 sudo systemctl start syncai-webrtc-worker
 ```
 
-### 4. Manage the service
+### Managing the service
 
 ```bash
 # Check status
@@ -241,9 +256,19 @@ go vet ./...
 
 GitHub Actions workflows:
 
-- **test.yml** — Runs `go vet` and `go test -v -race ./...` on PRs to main/stage/dev
-- **build.yml** — Builds binary and runs smoke test on push to main/stage/dev
-- **publish-image.yml** — Publishes Docker image to GHCR on Dockerfile changes
+- **test.yml** — On PRs to `main`/`stage`/`dev`: runs `go vet` and
+  `go test -v -race ./...` inside the `syncai-webrtc-worker-base` container
+  image.
+- **build.yml** — On push to `main`/`stage`/`dev`: builds the binary, runs a
+  smoke test against port `18000`, then packages the binary together with
+  `syncai-webrtc-worker.service` into `syncai-webrtc-worker-<timestamp>.tar.gz`
+  and uploads it as a workflow artifact (retained 7 days). This tarball is what
+  `scripts/deploy.sh` consumes on the target device.
+- **publish-image.yml** — On push to `main`/`stage`/`dev` that touches the
+  `Dockerfile`: builds the `builder` stage and pushes it to GHCR as
+  `ghcr.io/<owner>/syncai-webrtc-worker-base:latest`. This is the **build base
+  image** used by `test.yml` and `build.yml` as their container — not a runtime
+  image for end users.
 
 ## License
 
