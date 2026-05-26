@@ -36,7 +36,7 @@ type RobotCommand struct {
 
 func NewRobotGateway(socketPath string, controlClient transport.ControlClient) *RobotGateway {
 	if socketPath == "" {
-		socketPath = "/tmp/rtsp_pusher.sock"
+		socketPath = "/tmp/rtp_pusher.sock"
 	}
 
 	return &RobotGateway{

@@ -23,7 +23,7 @@ func NewRouter(app *config.AppConfig, gCfg *config.GStreamerConfig) *gin.Engine 
 		AllowCredentials: true,
 	}))
 
-	h := handlers.NewHandler(app, gCfg, &handlers.DefaultSessionManager{}, gateway.NewRobotGateway("/tmp/rtsp_pusher.sock", transport.NewGRPCControlClient("127.0.0.1:50052")))
+	h := handlers.NewHandler(app, gCfg, &handlers.DefaultSessionManager{}, gateway.NewRobotGateway("/tmp/rtp_pusher.sock", transport.NewGRPCControlClient("127.0.0.1:50052")))
 
 	router.POST("/control/whip", h.HandleControlWHIP)
 	router.DELETE("/control/whip/:id", h.DeleteControlWHIP)
