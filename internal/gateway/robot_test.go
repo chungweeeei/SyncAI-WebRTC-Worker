@@ -21,7 +21,7 @@ func TestNewRobotGateway_DefaultSocketPath(t *testing.T) {
 
 	// Assert
 	assert.NotNil(t, gw)
-	assert.Equal(t, "/tmp/rtsp_pusher.sock", gw.socketPath)
+	assert.Equal(t, "/tmp/rtp_pusher.sock", gw.socketPath)
 }
 
 func TestNewRobotGateway_CustomSocketPath(t *testing.T) {

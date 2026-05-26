@@ -13,7 +13,7 @@ A Go-based WebRTC worker service for robot control and real-time audio/video str
   - Task/command execution system (Move, Head, TTS, Wait, StandUp, SitDown)
 - **Support Multiple Video Sources**
   - Direct camera access (`/dev/syncai_camera`)
-  - ROS node integration (UDP/RTSP via Unix socket `/tmp/rtsp_pusher.sock`)
+  - ROS node integration (UDP/RTSP via Unix socket `/tmp/rtp_pusher.sock`)
 - **Audio Processing**
   - WHIP audio input
   - GStreamer audio processing with volume control

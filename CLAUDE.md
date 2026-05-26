@@ -89,7 +89,7 @@ Environment variables (or `.env` file):
 
 - **GStreamer 1.0** for media capture/processing (uses NVIDIA `nvv4l2h264enc` on supported hardware)
 - **gRPC server** expected at `127.0.0.1:50052` for robot velocity control
-- **Unix socket** at `/tmp/rtsp_pusher.sock` for ROS RTSP integration
+- **Unix socket** at `/tmp/rtp_pusher.sock` for ROS RTSP integration
 
 ## Proto Generation
 
