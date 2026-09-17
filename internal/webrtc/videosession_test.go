@@ -1,7 +1,6 @@
 package webrtc
 
 import (
-	"SyncAI-WebRTC-Worker/internal/config"
 	"sync"
 	"testing"
 
@@ -146,7 +145,6 @@ func TestVideoSessionOptions_DefaultValues(t *testing.T) {
 
 	assert.Equal(t, 0, opts.VideoRTPPort, "expected default VideoRTPPort to be 0")
 	assert.Equal(t, 0, opts.AudioRTPPort, "expected default AudioRTPPort to be 0")
-	assert.Empty(t, opts.VideoSource, "expected default VideoSource to be empty")
 	assert.Nil(t, opts.PCFactory, "expected default PCFactory to be nil")
 	assert.Nil(t, opts.PipelineFactory, "expected default PipelineFactory to be nil")
 }
@@ -243,24 +241,6 @@ func TestVideoSession_ClosedFlag(t *testing.T) {
 	session.mu.Lock()
 	assert.True(t, session.closed, "closed flag should be true after close")
 	session.mu.Unlock()
-}
-
-func TestCreateVideoSession_UnsupportedVideoSource(t *testing.T) {
-	// Arrange
-	videoSessionsMu.Lock()
-	videoSessions = make(map[string]*VideoSession)
-	videoSessionsMu.Unlock()
-
-	// Act
-	_, _, err := CreateVideoSession("v=0\r\n", VideoSessionOptions{
-		VideoRTPPort: 5006,
-		AudioRTPPort: 5008,
-		VideoSource:  config.VideoSourceType("unsupported"),
-	})
-
-	// Assert
-	assert.Error(t, err, "CreateVideoSession should fail with unsupported video source")
-	assert.Contains(t, err.Error(), "unsupported video source type")
 }
 
 func TestVideoSession_IDNotEmpty(t *testing.T) {

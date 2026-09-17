@@ -1,4 +1,5 @@
-# Stage 1: Build
+# Build environment (Go toolchain + GStreamer dev libraries).
+# Used by docker-compose `build-lib` to compile libsyncai_worker.so.
 FROM golang:1.25-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,21 +13,3 @@ WORKDIR /src
 
 COPY go.mod go.sum ./
 RUN go mod download
-
-COPY . .
-RUN go build -o /out/syncai-webrtc-worker cmd/main.go
-
-# Stage 2: Runtime
-FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gstreamer1.0-plugins-good \
-    gstreamer1.0-plugins-bad \
-    gstreamer1.0-plugins-ugly \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /out/syncai-webrtc-worker /usr/local/bin/syncai-webrtc-worker
-
-EXPOSE 18000
-
-ENTRYPOINT ["syncai-webrtc-worker"]

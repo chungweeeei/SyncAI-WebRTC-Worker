@@ -181,26 +181,3 @@ func TestAppConfig_Shutdown(t *testing.T) {
 		config.Shutdown()
 	})
 }
-
-func TestDetectVideoSource_CameraExists(t *testing.T) {
-	if _, err := os.Stat("/dev/syncai_camera"); os.IsNotExist(err) {
-		t.Skip("Skipping: /dev/syncai_camera does not exist")
-	}
-
-	result := detectVideoSource()
-	assert.Equal(t, VideoSourceCamera, result)
-}
-
-func TestDetectVideoSource_FallbackToROS(t *testing.T) {
-	if _, err := os.Stat("/dev/syncai_camera"); err == nil {
-		t.Skip("Skipping: /dev/syncai_camera exists")
-	}
-
-	result := detectVideoSource()
-	assert.Equal(t, VideoSourceROS, result)
-}
-
-func TestVideoSourceType_Constants(t *testing.T) {
-	assert.Equal(t, VideoSourceType("camera"), VideoSourceCamera)
-	assert.Equal(t, VideoSourceType("ros"), VideoSourceROS)
-}

@@ -42,13 +42,6 @@ func (app *AppConfig) Shutdown() {
 	close(app.ErrorDoneChan)
 }
 
-type VideoSourceType string
-
-const (
-	VideoSourceCamera VideoSourceType = "camera" // received image data directly from /dev/video0
-	VideoSourceROS    VideoSourceType = "ros"    // received image data from udp src which is published by ROS node
-)
-
 type AudioConfig struct {
 	AudioVolume float64
 }
@@ -57,7 +50,6 @@ type GStreamerConfig struct {
 	AudioRTPPort      int
 	VideoRTPPort      int
 	VideoAudioRTPPort int
-	VideoSource       VideoSourceType
 	AudioConfig       AudioConfig
 	ICEServers        []webrtc.ICEServer
 }
@@ -90,7 +82,6 @@ func NewGStreamerConfig() *GStreamerConfig {
 		AudioRTPPort:      audioPort,
 		VideoRTPPort:      videoPort,
 		VideoAudioRTPPort: videoAudioPort,
-		VideoSource:       detectVideoSource(),
 		AudioConfig: AudioConfig{
 			AudioVolume: audioVolume,
 		},
@@ -137,11 +128,4 @@ func parseICEServers() []webrtc.ICEServer {
 	}
 
 	return servers
-}
-
-func detectVideoSource() VideoSourceType {
-	if _, err := os.Stat("/dev/syncai_camera"); err == nil {
-		return VideoSourceCamera
-	}
-	return VideoSourceROS
 }

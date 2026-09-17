@@ -8,7 +8,6 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
-	"SyncAI-WebRTC-Worker/internal/config"
 	"SyncAI-WebRTC-Worker/internal/proc"
 )
 
@@ -32,7 +31,6 @@ var (
 type VideoSessionOptions struct {
 	VideoRTPPort    int
 	AudioRTPPort    int
-	VideoSource     config.VideoSourceType
 	PCFactory       PeerConnectionFactory
 	PipelineFactory proc.PipelineFactory
 	ICEServers      []webrtc.ICEServer
@@ -94,37 +92,26 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		return "", "", fmt.Errorf("failed to add audio track: %w", err)
 	}
 
-	switch opts.VideoSource {
-	case config.VideoSourceCamera:
-		if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
-			pc.Close()
-			return "", "", err
-		}
-
-		if err := session.startRTPListener(opts.AudioRTPPort, session.audioTrack, &session.audioUDPListener, "audio"); err != nil {
-			session.Close()
-			return "", "", err
-		}
-
-		pipelineFactory := opts.PipelineFactory
-		if pipelineFactory == nil {
-			pipelineFactory = &proc.DefaultPipelineFactory{}
-		}
-		gst, err := proc.NewVideoGStreamerPipelineWithFactory(opts.VideoRTPPort, opts.AudioRTPPort, pipelineFactory)
-		if err != nil {
-			session.Close()
-			return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
-		}
-		session.GStreamer = gst
-	case config.VideoSourceROS:
-		if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
-			pc.Close()
-			return "", "", err
-		}
-	default:
+	if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
 		pc.Close()
-		return "", "", fmt.Errorf("unsupported video source type: %s", opts.VideoSource)
+		return "", "", err
 	}
+
+	if err := session.startRTPListener(opts.AudioRTPPort, session.audioTrack, &session.audioUDPListener, "audio"); err != nil {
+		session.Close()
+		return "", "", err
+	}
+
+	pipelineFactory := opts.PipelineFactory
+	if pipelineFactory == nil {
+		pipelineFactory = &proc.DefaultPipelineFactory{}
+	}
+	gst, err := proc.NewVideoGStreamerPipelineWithFactory(opts.VideoRTPPort, opts.AudioRTPPort, pipelineFactory)
+	if err != nil {
+		session.Close()
+		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
+	}
+	session.GStreamer = gst
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		fmt.Printf("Video session %s: %s\n", sessionID, state.String())
