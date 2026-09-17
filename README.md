@@ -1,19 +1,15 @@
 # SyncAI WebRTC Worker
 
-A Go-based WebRTC worker service for robot control and real-time audio/video streaming. Bridges WebRTC connections to robot systems via WHIP/WHEP protocols.
+A Go-based WebRTC worker service for real-time audio/video streaming. Bridges WebRTC connections to robot systems via WHIP/WHEP protocols.
 
 ## Features
 
 - **WebRTC WHIP/WHEP Support**
-  - WHIP (WebRTC-HTTP Ingestion Protocol) for control commands and audio input
+  - WHIP (WebRTC-HTTP Ingestion Protocol) for audio input
   - WHEP (WebRTC-HTTP Egress Protocol) for video output
-- **Robot Control**
-  - Velocity commands via gRPC streaming (`127.0.0.1:50052`)
-  - Real-time control messages via DataChannel
-  - Task/command execution system (Move, Head, TTS, Wait, StandUp, SitDown)
 - **Support Multiple Video Sources**
   - Direct camera access (`/dev/syncai_camera`)
-  - ROS node integration (UDP/RTSP via Unix socket `/tmp/rtp_pusher.sock`)
+  - ROS node integration (RTP over UDP)
 - **Audio Processing**
   - WHIP audio input
   - GStreamer audio processing with volume control
@@ -26,7 +22,6 @@ A Go-based WebRTC worker service for robot control and real-time audio/video str
 | WebRTC | Pion WebRTC v4 |
 | Media Processing | GStreamer (go-gst) |
 | Web Framework | Gin |
-| RPC | gRPC + Protocol Buffers |
 | WebSocket | Gorilla WebSocket |
 | Containerization | Docker (multi-stage build) |
 
@@ -162,13 +157,6 @@ All endpoints require `Content-Type: application/sdp` with SDP Offer in the requ
 
 CORS is enabled for `https://*`, `http://*`, and `http://localhost:5173`.
 
-### Control (WHIP)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/control/whip` | Create WebRTC control session |
-| `DELETE` | `/control/whip/:id` | Close control session |
-
 ### Audio (WHIP)
 
 | Method | Path | Description |
@@ -183,40 +171,6 @@ CORS is enabled for `https://*`, `http://*`, and `http://localhost:5173`.
 | `POST` | `/video/whep` | Create video output session |
 | `DELETE` | `/video/whep/:id` | Close video session |
 
-## DataChannel Message Format
-
-### Control Command (CONTROL)
-
-```json
-{
-  "action": "CONTROL",
-  "id": "uuid",
-  "timestamp": 1234567890,
-  "payload": {
-    "linear": { "x": 0.5, "y": 0, "z": 0 },
-    "angular": { "x": 0, "y": 0, "z": 0.1 }
-  }
-}
-```
-
-### Task Command (TASK)
-
-```json
-{
-  "action": "TASK",
-  "id": "uuid",
-  "timestamp": 1234567890,
-  "payload": {
-    "steps": [
-      { "id": "1", "name": "move", "type": "MOVE", "params": {...} },
-      { "id": "2", "name": "speak", "type": "TTS", "params": {...} }
-    ]
-  }
-}
-```
-
-Supported task types: `MOVE`, `HEAD`, `TTS`, `WAIT`, `STANDUP`, `SITDOWN`
-
 ## Project Structure
 
 ```
@@ -227,13 +181,9 @@ Supported task types: `MOVE`, `HEAD`, `TTS`, `WAIT`, `STANDUP`, `SITDOWN`
 │   │   ├── router.go        # Route configuration
 │   │   └── handlers/        # Request handlers
 │   ├── config/              # Configuration management
-│   ├── gateway/             # Robot gateway (gRPC/Socket)
-│   ├── pb/                  # Protocol Buffers generated files
 │   ├── proc/                # GStreamer processors
-│   ├── transport/           # Transport layer (gRPC/WebSocket)
+│   ├── transport/           # Transport layer (WebSocket, currently unwired)
 │   └── webrtc/              # WebRTC session management
-│       └── actions/         # Action command handlers
-├── protos/                  # Protocol Buffers definitions
 ├── scripts/                 # Build scripts
 ├── Dockerfile
 └── docker-compose.yml

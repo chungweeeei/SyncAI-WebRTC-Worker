@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 
-	"SyncAI-WebRTC-Worker/internal/config"
 	rtc "SyncAI-WebRTC-Worker/internal/webrtc"
 
 	"github.com/gin-gonic/gin"
@@ -35,15 +34,6 @@ func (h *Handler) HandleVideoWHEP(c *gin.Context) {
 		return
 	}
 
-	switch h.GStreamerCfg.VideoSource {
-	case config.VideoSourceCamera:
-	case config.VideoSourceROS:
-		if err := h.RobotGateway.StartRTSPPusher(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open ROS Node"})
-			return
-		}
-	}
-
 	c.Header("Content-Type", "application/sdp")
 	c.Header("Location", "/video/whep/"+sessionID)
 	c.String(http.StatusCreated, answerSDP)
@@ -51,15 +41,6 @@ func (h *Handler) HandleVideoWHEP(c *gin.Context) {
 
 func (h *Handler) DeleteVideoWHEP(c *gin.Context) {
 	sessionID := c.Param("id")
-
-	switch h.GStreamerCfg.VideoSource {
-	case config.VideoSourceCamera:
-	case config.VideoSourceROS:
-		if err := h.RobotGateway.StopRTSPPusher(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to closed ROS Node"})
-			return
-		}
-	}
 
 	if err := h.SessionManager.DeleteVideoSession(sessionID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
