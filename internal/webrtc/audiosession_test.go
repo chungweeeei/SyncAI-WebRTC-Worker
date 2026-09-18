@@ -79,11 +79,11 @@ func TestCreateAudioSession_SetRemoteDescriptionError(t *testing.T) {
 	mockPCFactory.On("NewPeerConnection", mock.Anything).Return(mockPC, nil)
 	mockPipelineFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", mock.Anything).Return(nil)
+	mockPipeline.On("BlockSetState", mock.Anything).Return(nil)
 	mockPC.On("OnTrack", mock.Anything).Return()
 	mockPC.On("OnConnectionStateChange", mock.Anything).Return()
 	mockPC.On("SetRemoteDescription", mock.Anything).Return(errors.New("invalid SDP"))
 	mockPC.On("Close").Return(nil)
-	mockPipeline.On("Unref").Return()
 
 	opts := AudioSessionOptions{
 		RTPPort:         5004,
@@ -116,12 +116,12 @@ func TestCreateAudioSession_CreateAnswerError(t *testing.T) {
 	mockPCFactory.On("NewPeerConnection", mock.Anything).Return(mockPC, nil)
 	mockPipelineFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", mock.Anything).Return(nil)
+	mockPipeline.On("BlockSetState", mock.Anything).Return(nil)
 	mockPC.On("OnTrack", mock.Anything).Return()
 	mockPC.On("OnConnectionStateChange", mock.Anything).Return()
 	mockPC.On("SetRemoteDescription", mock.Anything).Return(nil)
 	mockPC.On("CreateAnswer", mock.Anything).Return(webrtc.SessionDescription{}, errors.New("answer failed"))
 	mockPC.On("Close").Return(nil)
-	mockPipeline.On("Unref").Return()
 
 	opts := AudioSessionOptions{
 		RTPPort:         5004,

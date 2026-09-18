@@ -109,6 +109,7 @@ func CreateVideoSession(offerSDP *C.char) *C.char {
 	opts := rtc.VideoSessionOptions{
 		VideoRTPPort: cfg.VideoRTPPort,
 		AudioRTPPort: cfg.VideoAudioRTPPort,
+		VideoConfig:  cfg.VideoConfig,
 		ICEServers:   cfg.ICEServers,
 	}
 
@@ -128,6 +129,52 @@ func DeleteVideoSession(sessionID *C.char) *C.char {
 	}
 
 	if err := rtc.DeleteVideoSession(C.GoString(sessionID)); err != nil {
+		return C.CString(errorResult(err.Error()))
+	}
+	return C.CString(successResult())
+}
+
+// CreateDuplexSession creates a bidirectional session from an SDP offer: the
+// camera and the robot's audio track out, the browser's microphone in, all on
+// one peer connection. Spawns both GStreamer pipelines. Blocks until ICE
+// gathering completes.
+//
+// It contends with both single-direction sessions for the camera and the
+// speaker, and nothing here arbitrates that — the host owns the slots, so the
+// host is what preempts.
+//
+//export CreateDuplexSession
+func CreateDuplexSession(offerSDP *C.char) *C.char {
+	cfg := loadedConfig()
+	if cfg == nil {
+		return C.CString(errorResult("worker not initialized"))
+	}
+
+	opts := rtc.DuplexSessionOptions{
+		VideoRTPPort: cfg.VideoRTPPort,
+		AudioRTPPort: cfg.VideoAudioRTPPort,
+		VideoConfig:  cfg.VideoConfig,
+		MicRTPPort:   cfg.AudioRTPPort,
+		AudioCfg:     cfg.AudioConfig,
+		ICEServers:   cfg.ICEServers,
+	}
+
+	sessionID, answerSDP, err := rtc.CreateDuplexSession(C.GoString(offerSDP), opts)
+	if err != nil {
+		return C.CString(errorResult(err.Error()))
+	}
+	return C.CString(sessionResult(sessionID, answerSDP))
+}
+
+// DeleteDuplexSession closes a duplex session by ID. Idempotent.
+//
+//export DeleteDuplexSession
+func DeleteDuplexSession(sessionID *C.char) *C.char {
+	if loadedConfig() == nil {
+		return C.CString(errorResult("worker not initialized"))
+	}
+
+	if err := rtc.DeleteDuplexSession(C.GoString(sessionID)); err != nil {
 		return C.CString(errorResult(err.Error()))
 	}
 	return C.CString(successResult())

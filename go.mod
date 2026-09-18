@@ -3,7 +3,7 @@ module SyncAI-WebRTC-Worker
 go 1.25.5
 
 require (
-	github.com/go-gst/go-gst v1.4.0
+	github.com/go-gst/go-gst v1.0.0
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/pion/rtp v1.10.1

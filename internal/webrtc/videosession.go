@@ -8,6 +8,7 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
+	"SyncAI-WebRTC-Worker/internal/config"
 	"SyncAI-WebRTC-Worker/internal/proc"
 )
 
@@ -31,6 +32,7 @@ var (
 type VideoSessionOptions struct {
 	VideoRTPPort    int
 	AudioRTPPort    int
+	VideoConfig     config.VideoConfig
 	PCFactory       PeerConnectionFactory
 	PipelineFactory proc.PipelineFactory
 	ICEServers      []webrtc.ICEServer
@@ -106,7 +108,7 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 	if pipelineFactory == nil {
 		pipelineFactory = &proc.DefaultPipelineFactory{}
 	}
-	gst, err := proc.NewVideoGStreamerPipelineWithFactory(opts.VideoRTPPort, opts.AudioRTPPort, pipelineFactory)
+	gst, err := proc.NewVideoGStreamerPipelineWithFactory(opts.VideoRTPPort, opts.AudioRTPPort, opts.VideoConfig, pipelineFactory)
 	if err != nil {
 		session.Close()
 		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)

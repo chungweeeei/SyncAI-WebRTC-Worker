@@ -67,13 +67,52 @@ Configure via environment variables or `.env` file:
 | `AUDIO_RTP_PORT` | Audio RTP port | `5004` |
 | `VIDEO_RTP_PORT` | Video RTP port | `5006` |
 | `VIDEO_AUDIO_RTP_PORT` | Video audio track RTP port | `5007` |
-| `AUDIO_VOLUME` | Audio volume (0.0-1.0) | `0.2` |
+| `AUDIO_VOLUME` | Playback gain for the WHIP branch; 1.0 is unity, above it amplifies and clips | `1.0` |
+| `AUDIO_SINK` | Complete GStreamer sink element the WHIP branch plays into | `alsasink device=plughw:CARD=CD002AUDIO` |
 | `STUN_SERVERS` | Comma-separated STUN server URLs | `stun:stun.l.google.com:19302` |
 | `TURN_SERVERS` | Comma-separated TURN server URLs | |
 | `TURN_USERNAME` | TURN authentication username | |
 | `TURN_PASSWORD` | TURN authentication password | |
+| `VIDEO_DEVICE` | V4L2 capture node | `/dev/syncai/camera0` |
+| `VIDEO_FORMAT` | Capture branch: `mjpeg` (nvjpegdec) or `uyvy` (videoconvert) | `mjpeg` |
+| `VIDEO_WIDTH` | Capture width | `1280` |
+| `VIDEO_HEIGHT` | Capture height | `720` |
+| `VIDEO_FRAMERATE` | Capture framerate (fps) | `60` |
+| `VIDEO_BITRATE` | H.264 bitrate (bps) | `4000000` |
+| `VIDEO_AUTO_EXPOSURE` | `0` = Auto Mode, `1` = Manual Mode (UVC menu numbering) | `0` |
+| `VIDEO_EXPOSURE` | Exposure time in 100 us units; applied only when `VIDEO_AUTO_EXPOSURE=1` | `330` |
+| `VIDEO_AUTO_WB` | `1` = automatic white balance, `0` = manual | `1` |
+| `VIDEO_WB_TEMP` | White balance temperature in K; applied only when `VIDEO_AUTO_WB=0` | `5000` |
+| `VIDEO_GAIN` | Sensor gain | `1` |
+| `VIDEO_BRIGHTNESS` | Sensor brightness | `16` |
+| `VIDEO_POWER_LINE_FREQ` | Flicker correction: `0` disabled, `1` = 50 Hz, `2` = 60 Hz | `1` |
+| `VIDEO_AUDIO_SRC` | Full GStreamer source element for the microphone branch; empty drops the branch | |
 
-The video source is fixed to camera mode (`/dev/syncai_camera`).
+The video source is the camera at `VIDEO_DEVICE`. The default is a udev symlink
+rather than `/dev/videoN` — where two identical cameras are fitted, minor
+numbers swap on replug.
+
+`VIDEO_WIDTH` / `VIDEO_HEIGHT` / `VIDEO_FRAMERATE` must be a combination the
+sensor actually advertises (`v4l2-ctl -d $VIDEO_DEVICE --list-formats-ext`); the
+AR0234 offers 640x480 at 120/60 fps but **not** at 30. A pair it does not offer
+fails as a `not-negotiated` error on the GStreamer bus, which the pipeline's bus
+watcher logs — `SetState(PLAYING)` itself still returns success.
+
+The sensor controls are written through `v4l2src extra-controls` at capture
+start, and they are not decorative. UVC control state lives in the camera
+firmware and survives open/close, so a pipeline that sets nothing inherits
+whatever the last process left behind — on this fleet that was manual exposure
+at 4 ms and manual white balance frozen at 4000 K, an image so dark and so blue
+it reads as a broken encoder. Note the two auto switches disagree on polarity:
+`VIDEO_AUTO_EXPOSURE=0` and `VIDEO_AUTO_WB=1` both mean "automatic". Each
+manual value is gated by its auto switch — the driver rejects the write while
+the automatic mode is on, so the pipeline emits it only when that mode is off.
+
+`VIDEO_AUDIO_SRC` is empty by default because the robot has no capture device
+and the deployment container ships no `alsasrc` element; an audio branch that
+cannot be parsed fails the whole pipeline string and takes the video with it.
+The WHEP session still offers an Opus track when it is empty — the track simply
+carries no packets.
 
 ## Session API
 

@@ -3,6 +3,7 @@ package proc
 import (
 	"fmt"
 	"io"
+	"log"
 	"sync"
 
 	"SyncAI-WebRTC-Worker/internal/config"
@@ -25,8 +26,8 @@ func BuildAudioPipelineString(port int, cfg config.AudioConfig) string {
 			"! audioconvert "+
 			"! volume volume=%f "+
 			"! audioresample "+
-			"! pulsesink",
-		port, cfg.AudioVolume,
+			"! %s",
+		port, cfg.AudioVolume, cfg.Sink,
 	)
 }
 
@@ -45,6 +46,12 @@ func NewAudioGStreamerPipelineWithFactory(port int, cfg config.AudioConfig, fact
 	}
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
+		// Back to NULL for the same reason the video pipeline's failed start
+		// is: the finalizer unrefs whatever state the pipeline was left in,
+		// and an ALSA sink disposed above NULL keeps the speaker.
+		if nullErr := pipeline.BlockSetState(gst.StateNull); nullErr != nil {
+			log.Printf("audio pipeline did not reach NULL after a failed start: %v", nullErr)
+		}
 		return nil, err
 	}
 
@@ -67,8 +74,13 @@ func (g *AudioGStreamerPipeline) Close() error {
 	}
 
 	if g.pipeline != nil {
-		g.pipeline.SetState(gst.StateNull)
-		g.pipeline.Unref()
+		// Blocking for the same reason the video pipeline's teardown is; see
+		// the Pipeline interface -- which is also why the reference is merely
+		// dropped here rather than unreffed by hand.
+		if err := g.pipeline.BlockSetState(gst.StateNull); err != nil {
+			log.Printf("audio pipeline did not reach NULL cleanly: %v", err)
+		}
+		g.pipeline = nil
 	}
 	return nil
 }
