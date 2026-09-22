@@ -98,8 +98,8 @@ type VideoConfig struct {
 	// Polarity trap, and the two controls disagree: auto_exposure is a menu
 	// that inherits the UVC numbering (0 = Auto, 1 = Manual), while
 	// white_balance_automatic is a plain boolean (1 = automatic). So the
-	// defaults below -- AutoExposure 0, AutoWhiteBalance 1 -- both mean
-	// "automatic".
+	// defaults below -- AutoExposure 0 means "automatic"; AutoWhiteBalance 0
+	// does NOT, it means manual, and that is deliberate (see below).
 	//
 	// Both manual values are gated by their auto switch: the driver rejects a
 	// write to them while the corresponding automatic mode is on, so they are
@@ -187,8 +187,28 @@ func NewGStreamerConfig() *GStreamerConfig {
 			// them unsettable.
 			AutoExposure:     getEnvIntAllowZero("VIDEO_AUTO_EXPOSURE", 0),
 			ExposureTime:     getEnvIntAllowZero("VIDEO_EXPOSURE", 330),
-			AutoWhiteBalance: getEnvIntAllowZero("VIDEO_AUTO_WB", 1),
-			WhiteBalanceTemp: getEnvIntAllowZero("VIDEO_WB_TEMP", 5000),
+			// AWB off, and a fixed 5200 K, measured on the robot rather
+			// than guessed. The camera's AWB settles distinctly blue under
+			// the lab's fluorescent lighting: sampling a white wall and a
+			// grey carpet across a 2800-6500 K sweep, auto sat at R/G-B/G
+			// = -0.27 (wall) and -0.41 (carpet), where 0 is neutral on the
+			// red-blue axis. The zero crossing is 5040 K against the wall
+			// and 5410 K against the carpet; 5200 splits them at +0.02 and
+			// -0.04, which is closer to neutral than auto ever gets.
+			//
+			// Fixed rather than automatic for a second reason: AWB retunes
+			// as the robot drives and the frame fills with a coloured wall
+			// or a lit screen, so the operator's view shifts colour while
+			// nothing in the scene changed. A constant is worth more here
+			// than per-frame correctness.
+			//
+			// What this does NOT fix is the green cast -- R/G never reaches
+			// 1.0 at any temperature, because the sensor exposes no tint
+			// control and the temperature axis only trades red against
+			// blue. Re-measure with the sweep above if the lighting
+			// changes; do not expect a temperature to remove it.
+			AutoWhiteBalance: getEnvIntAllowZero("VIDEO_AUTO_WB", 0),
+			WhiteBalanceTemp: getEnvIntAllowZero("VIDEO_WB_TEMP", 5200),
 			Gain:             getEnvIntAllowZero("VIDEO_GAIN", 1),
 			Brightness:       getEnvIntAllowZero("VIDEO_BRIGHTNESS", 16),
 			// 50 Hz by default: the camera ships with flicker correction

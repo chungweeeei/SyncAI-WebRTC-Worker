@@ -81,8 +81,8 @@ Configure via environment variables or `.env` file:
 | `VIDEO_BITRATE` | H.264 bitrate (bps) | `4000000` |
 | `VIDEO_AUTO_EXPOSURE` | `0` = Auto Mode, `1` = Manual Mode (UVC menu numbering) | `0` |
 | `VIDEO_EXPOSURE` | Exposure time in 100 us units; applied only when `VIDEO_AUTO_EXPOSURE=1` | `330` |
-| `VIDEO_AUTO_WB` | `1` = automatic white balance, `0` = manual | `1` |
-| `VIDEO_WB_TEMP` | White balance temperature in K; applied only when `VIDEO_AUTO_WB=0` | `5000` |
+| `VIDEO_AUTO_WB` | `1` = automatic white balance, `0` = manual | `0` |
+| `VIDEO_WB_TEMP` | White balance temperature in K (2300–15000); applied only when `VIDEO_AUTO_WB=0` | `5200` |
 | `VIDEO_GAIN` | Sensor gain | `1` |
 | `VIDEO_BRIGHTNESS` | Sensor brightness | `16` |
 | `VIDEO_POWER_LINE_FREQ` | Flicker correction: `0` disabled, `1` = 50 Hz, `2` = 60 Hz | `1` |
