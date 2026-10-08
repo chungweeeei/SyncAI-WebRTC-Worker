@@ -25,19 +25,6 @@ type VideoGStreamerPipeline struct {
 	closed   bool
 }
 
-// BuildVideoPipelineString builds the capture pipeline feeding the WHEP
-// session's two RTP listeners.
-//
-// The encoder properties are the ones the robot workspace's host-side
-// publisher (scripts/publish_camera_crop.sh) already proved on this hardware:
-// baseline profile for browser compatibility, an IDR every half second, and
-// h264parse config-interval=-1 so SPS/PPS ride in-band with every keyframe.
-// The IDR interval matters more here than it does for RTSP -- the worker never
-// answers an RTCP PLI, so a browser that joins mid-stream shows nothing until
-// the next keyframe arrives on its own.
-//
-// The audio branch is appended only when cfg.AudioSource is set; see
-// config.VideoConfig for why empty is the default.
 // buildSensorControls renders v4l2src's extra-controls string.
 //
 // Order is load-bearing: each auto_* switch has to precede the manual value it
@@ -62,6 +49,32 @@ func buildSensorControls(cfg config.VideoConfig) string {
 	return controls
 }
 
+// rtpJPEGCaps describes what the camera feeder sends: RTP/JPEG (RFC 2435),
+// static payload type 26. udpsrc cannot discover caps on its own.
+const rtpJPEGCaps = "application/x-rtp,media=video,encoding-name=JPEG,payload=26,clock-rate=90000"
+
+// rtpInTimeout is how long the "rtpjpeg" branch goes without a packet before
+// udpsrc posts a GstUDPSrcTimeout element message, which the bus watcher logs.
+// Without it a missing camera feeder is a black view and nothing else: udpsrc
+// does not fail when nobody sends.
+const rtpInTimeout = 3 * time.Second
+
+// BuildVideoPipelineString builds the capture pipeline feeding the WHEP
+// session's two RTP listeners.
+//
+// The source is one of three branches (see config.VideoConfig.Format); all of
+// them hand the shared encode half below NVMM-ready frames.
+//
+// The encoder properties are the ones the robot workspace's host-side
+// publisher (scripts/publish_camera_crop.sh) already proved on this hardware:
+// baseline profile for browser compatibility, an IDR every half second, and
+// h264parse config-interval=-1 so SPS/PPS ride in-band with every keyframe.
+// The IDR interval matters more here than it does for RTSP -- the worker never
+// answers an RTCP PLI, so a browser that joins mid-stream shows nothing until
+// the next keyframe arrives on its own.
+//
+// The audio branch is appended only when cfg.AudioSource is set; see
+// config.VideoConfig for why empty is the default.
 func BuildVideoPipelineString(videoPort, audioPort int, cfg config.VideoConfig) string {
 	// Half a second of frames, matching the host publisher's IDR_INTERVAL.
 	idrInterval := cfg.Framerate / 2
@@ -69,10 +82,28 @@ func BuildVideoPipelineString(videoPort, audioPort int, cfg config.VideoConfig) 
 		idrInterval = 1
 	}
 
-	sensorControls := buildSensorControls(cfg)
-
 	var source string
-	if strings.EqualFold(cfg.Format, "uyvy") {
+	switch {
+	case strings.EqualFold(cfg.Format, "rtpjpeg"):
+		// The camera feeder owns the device and has already written the
+		// sensor controls, so there is no v4l2src and no extra-controls here.
+		// Bound to 127.0.0.1: the feeder runs on the same host, and nothing
+		// off the robot should be able to inject frames into the view.
+		//
+		// No rtpjitterbuffer: loopback does not reorder, so its only effect
+		// would be its latency (200 ms by default). A lost packet costs
+		// rtpjpegdepay that one frame.
+		//
+		// The leaky queue sits before the decoder for the same reason as in
+		// the MJPEG branch. VIDEO_FRAMERATE should still match what the
+		// feeder sends: it sets the encoder's IDR interval below.
+		source = fmt.Sprintf(
+			"udpsrc address=127.0.0.1 port=%d timeout=%d caps=\"%s\" "+
+				"! rtpjpegdepay "+
+				"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 leaky=downstream "+
+				"! nvjpegdec ! video/x-raw(memory:NVMM) ",
+			cfg.RTPInPort, rtpInTimeout.Nanoseconds(), rtpJPEGCaps)
+	case strings.EqualFold(cfg.Format, "uyvy"):
 		// Raw capture: videoconvert is what lets nvvidconv take the frame into
 		// NVMM. The sensor advertises UYVY only at the higher framerates
 		// (640x480 is 120/60 fps, no 30), so a mismatched VIDEO_FRAMERATE
@@ -82,8 +113,8 @@ func BuildVideoPipelineString(videoPort, audioPort int, cfg config.VideoConfig) 
 				"! video/x-raw,format=UYVY,width=%d,height=%d,framerate=%d/1 "+
 				"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 leaky=downstream "+
 				"! videoconvert ",
-			cfg.Device, sensorControls, cfg.Width, cfg.Height, cfg.Framerate)
-	} else {
+			cfg.Device, buildSensorControls(cfg), cfg.Width, cfg.Height, cfg.Framerate)
+	default:
 		// MJPEG: the queue sits before the decoder on purpose -- dropping a
 		// compressed frame under back-pressure is cheaper than dropping a
 		// decoded one, and leaky=downstream is what keeps a slow encoder from
@@ -93,7 +124,7 @@ func BuildVideoPipelineString(videoPort, audioPort int, cfg config.VideoConfig) 
 				"! image/jpeg,width=%d,height=%d,framerate=%d/1 "+
 				"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 leaky=downstream "+
 				"! nvjpegdec ! video/x-raw(memory:NVMM) ",
-			cfg.Device, sensorControls, cfg.Width, cfg.Height, cfg.Framerate)
+			cfg.Device, buildSensorControls(cfg), cfg.Width, cfg.Height, cfg.Framerate)
 	}
 
 	pipeline := source + fmt.Sprintf(
@@ -195,7 +226,7 @@ func (g *VideoGStreamerPipeline) startBusWatch() {
 
 			msg := bus.TimedPopFiltered(
 				gst.ClockTime(busPollInterval),
-				gst.MessageError|gst.MessageWarning|gst.MessageEOS,
+				gst.MessageError|gst.MessageWarning|gst.MessageEOS|gst.MessageElement,
 			)
 			if msg == nil {
 				continue
@@ -212,6 +243,13 @@ func (g *VideoGStreamerPipeline) startBusWatch() {
 					msg.Source(), err.Error(), err.DebugString())
 			case gst.MessageEOS:
 				log.Printf("video pipeline reached end-of-stream (capture has stopped)")
+			case gst.MessageElement:
+				// Only the "rtpjpeg" branch's udpsrc posts this; it repeats
+				// every rtpInTimeout for as long as nothing arrives.
+				if st := msg.GetStructure(); st != nil && st.Name() == "GstUDPSrcTimeout" {
+					log.Printf("video pipeline: no RTP from the camera feeder for %s "+
+						"(is syncai_camera_feeder running and sending to this port?)", rtpInTimeout)
+				}
 			}
 			// No Unref: TimedPopFiltered wraps the message with
 			// FromGstMessageUnsafeFull, which takes no ref and installs a

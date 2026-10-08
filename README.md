@@ -16,6 +16,7 @@ A Go-based WebRTC session core for real-time robot audio/video streaming: WHIP-s
   - Duplex session: camera out and browser microphone in over a single peer connection (one ICE/DTLS handshake)
 - **Video Source**
   - Direct camera access (`VIDEO_DEVICE`, default `/dev/syncai/camera0`) via GStreamer (NVIDIA `nvv4l2h264enc` on supported hardware)
+  - Or RTP/JPEG from the camera feeder (`VIDEO_FORMAT=rtpjpeg`), so ROS can stream the same camera at the same time
 - **Audio Processing**
   - GStreamer audio pipeline with volume control
 
@@ -82,7 +83,8 @@ Configure via environment variables or `.env` file:
 | `TURN_USERNAME` | TURN authentication username | |
 | `TURN_PASSWORD` | TURN authentication password | |
 | `VIDEO_DEVICE` | V4L2 capture node | `/dev/syncai/camera0` |
-| `VIDEO_FORMAT` | Capture branch: `mjpeg` (nvjpegdec) or `uyvy` (videoconvert) | `mjpeg` |
+| `VIDEO_FORMAT` | Source branch: `mjpeg` (v4l2src → nvjpegdec), `uyvy` (v4l2src → videoconvert) or `rtpjpeg` (RTP/JPEG from the camera feeder → nvjpegdec) | `mjpeg` |
+| `VIDEO_RTP_IN_PORT` | Port the `rtpjpeg` branch listens on (127.0.0.1); must match the feeder's `rtp_port` | `5008` |
 | `VIDEO_WIDTH` | Capture width | `1280` |
 | `VIDEO_HEIGHT` | Capture height | `720` |
 | `VIDEO_FRAMERATE` | Capture framerate (fps) | `60` |
@@ -97,8 +99,29 @@ Configure via environment variables or `.env` file:
 | `VIDEO_AUDIO_SRC` | Full GStreamer source element for the microphone branch; empty drops the branch | |
 
 The video source is the camera at `VIDEO_DEVICE`. The default is a udev symlink
-rather than `/dev/videoN` — where two identical cameras are fitted, minor
-numbers swap on replug.
+rather than `/dev/videoN` — each camera exposes two nodes, and probe order
+decides which minor numbers they get.
+
+### Sharing the camera with ROS (`VIDEO_FORMAT=rtpjpeg`)
+
+A V4L2 capture device takes one streaming opener at a time, so a session that
+opens the camera itself and a ROS node publishing the same camera cannot both
+run — whichever starts second fails with `EBUSY`. With `VIDEO_FORMAT=rtpjpeg`
+the worker opens no device at all: the camera feeder
+([SyncAI-Robot-Camera-Feeder](https://github.com/chungweeeei/SyncAI-Robot-Camera-Feeder))
+is the camera's only opener and sends its MJPEG, undecoded, as RTP/JPEG to
+`127.0.0.1:$VIDEO_RTP_IN_PORT`. The branch is `udpsrc ! rtpjpegdepay !
+nvjpegdec`, and everything from `nvjpegdec` on is the same as `mjpeg`.
+
+In this mode:
+
+- `VIDEO_DEVICE` and the sensor controls are ignored; the feeder writes the
+  same controls with the same defaults.
+- `VIDEO_FRAMERATE` should match what the feeder sends (60): it sets the
+  encoder's IDR interval.
+- A feeder that is not running is not an error — `udpsrc` simply receives
+  nothing. The bus watcher logs `no RTP from the camera feeder` every 3 s while
+  that lasts, so a black view has a log line explaining it.
 
 `VIDEO_WIDTH` / `VIDEO_HEIGHT` / `VIDEO_FRAMERATE` must be a combination the
 sensor actually advertises (`v4l2-ctl -d $VIDEO_DEVICE --list-formats-ext`); the
@@ -107,7 +130,7 @@ fails as a `not-negotiated` error on the GStreamer bus, which the pipeline's bus
 watcher logs — `SetState(PLAYING)` itself still returns success.
 
 The sensor controls are written through `v4l2src extra-controls` at capture
-start, and they are not decorative. UVC control state lives in the camera
+start (by the two `v4l2src` branches), and they are not decorative. UVC control state lives in the camera
 firmware and survives open/close, so a pipeline that sets nothing inherits
 whatever the last process left behind — on this fleet that was manual exposure
 at 4 ms and manual white balance frozen at 4000 K, an image so dark and so blue
