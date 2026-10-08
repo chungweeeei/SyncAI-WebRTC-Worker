@@ -1,6 +1,6 @@
 # SyncAI WebRTC Worker
 
-A Go-based WebRTC session core for real-time robot audio/video streaming: WHIP-style audio ingestion and WHEP-style video egress, with GStreamer handling media capture and processing.
+A Go-based WebRTC session core for real-time robot audio/video streaming: WHIP-style audio ingestion, WHEP-style video egress, and a duplex session carrying both on one peer connection, with GStreamer handling media capture and processing.
 
 > **Architecture note** — this module is transitioning from a standalone HTTP
 > service to an embeddable library. The Gin HTTP layer has been removed; the
@@ -13,8 +13,9 @@ A Go-based WebRTC session core for real-time robot audio/video streaming: WHIP-s
 - **WebRTC Sessions (Pion)**
   - Audio input session (WHIP-style): receives client audio tracks, processes them through GStreamer, and outputs RTP
   - Video output session (WHEP-style): sends H264 video + Opus audio tracks captured from the physical camera
+  - Duplex session: camera out and browser microphone in over a single peer connection (one ICE/DTLS handshake)
 - **Video Source**
-  - Direct camera access (`/dev/syncai_camera`) via GStreamer (NVIDIA `nvv4l2h264enc` on supported hardware)
+  - Direct camera access (`VIDEO_DEVICE`, default `/dev/syncai/camera0`) via GStreamer (NVIDIA `nvv4l2h264enc` on supported hardware)
 - **Audio Processing**
   - GStreamer audio pipeline with volume control
 
@@ -24,14 +25,21 @@ A Go-based WebRTC session core for real-time robot audio/video streaming: WHIP-s
 |----------|------------|
 | Language | Go 1.25 |
 | WebRTC | Pion WebRTC v4 |
-| Media Processing | GStreamer (go-gst) |
-| Containerization | Docker (multi-stage build) |
+| Media Processing | GStreamer 1.20 (go-gst v1.0.0, pinned) |
+| Containerization | Docker (Ubuntu 22.04 builder stage) |
 
 ## Requirements
 
 - Go 1.25+
 - GStreamer 1.0 development libraries (build) and runtime plugins (run)
 - Docker (optional, for building)
+
+> **Do not upgrade `go-gst`.** The deployment target (Ubuntu 22.04 robot
+> container) ships GStreamer 1.20.3 with the NVIDIA Tegra elements built
+> against it. Every go-gst release after v1.0.0 calls a 1.22-only symbol, so a
+> library built against a newer GStreamer compiles fine and then fails to load
+> in the host with `undefined symbol: gst_debug_message_get_id`. v1.0.0 is
+> retracted upstream, so `go get -u` will try to move off it.
 
 ## Installation
 
@@ -129,14 +137,19 @@ the host must release with `FreeString`:
 | `DeleteAudioSession(id)` | Close audio session (unknown ID → not-found error) |
 | `CreateVideoSession(offerSDP)` | Create video output session → same envelope as audio |
 | `DeleteVideoSession(id)` | Close video session (idempotent — deleting an already-gone session succeeds) |
+| `CreateDuplexSession(offerSDP)` | Create bidirectional session (camera out, mic in) → same envelope; offer must carry `m=video recvonly` + `m=audio sendrecv` |
+| `DeleteDuplexSession(id)` | Close duplex session (idempotent) |
 | `FreeString(ptr)` | Release a string returned by any export |
 
 Notes for hosts:
 
 - `Create*Session` blocks until ICE gathering completes (up to a few seconds) —
   call it from a worker thread, not an async event loop.
-- Video sessions clean themselves up on WebRTC connection failure, which is why
-  `DeleteVideoSession` treats a missing session as success.
+- Video and duplex sessions clean themselves up on WebRTC connection failure,
+  which is why their delete calls treat a missing session as success.
+- The camera and the speaker are one device each, so a duplex session contends
+  with video/audio sessions for them. The library does not arbitrate this — the
+  host must ensure only one owner at a time.
 - A Go c-shared library cannot be unloaded — restarting the worker requires
   restarting the host process.
 
@@ -172,9 +185,9 @@ hardware.
 
 ## Legacy Deployment (systemd)
 
-`scripts/deploy.sh` and `syncai-webrtc-worker.service` date from the
-standalone HTTP-service era: they install a release tarball (binary + systemd
-unit) to `/opt/syncai-webrtc-worker/`. The standalone binary and its build
+`scripts/deploy.sh` dates from the standalone HTTP-service era (its
+`syncai-webrtc-worker.service` unit has since been removed): it installs a
+release tarball (binary + systemd unit) to `/opt/syncai-webrtc-worker/`. The standalone binary and its build
 targets have been removed, so this flow is currently non-functional; it will
 be replaced once the c-shared/FastAPI integration owns deployment.
 

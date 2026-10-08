@@ -39,12 +39,13 @@ sudo apt-get install -y pkg-config libgstreamer1.0-dev libgstreamer-plugins-base
 
 ## Architecture
 
-The public surface is the `internal/webrtc` package — two independent WebRTC session types, each managed by a create/delete function pair that takes an SDP offer string and returns a session ID plus the answer SDP:
+The public surface is the `internal/webrtc` package — three WebRTC session types, each managed by a create/delete function pair that takes an SDP offer string and returns a session ID plus the answer SDP:
 
 - **Audio** — `CreateAudioSession` / `DeleteAudioSession`: WHIP-style session receiving audio tracks from the client, relayed as RTP into a GStreamer pipeline that decodes Opus and plays it out of `AUDIO_SINK`. ALSA by card name, not PulseAudio: the robot container has no PulseAudio daemon at all, so the old `pulsesink` default could only ever have failed there, and the speaker is a USB dongle whose card *number* moves with probe order. The sink is exclusive, so a live WHIP session makes the backend's TTS `/speak` (which shells out to `aplay` on the same device) fail with "Device or resource busy" — sharing would mean moving both sides to dmix.
 - **Video** — `CreateVideoSession` / `DeleteVideoSession`: WHEP-style session sending video (H264) + audio (Opus) tracks to the client from the physical camera.
+- **Duplex** — `CreateDuplexSession` / `DeleteDuplexSession`: both directions on one peer connection — camera out, browser mic in to the speaker. Expects an offer with `m=video recvonly` + `m=audio sendrecv`. It buys one ICE/DTLS handshake instead of two and shared fate for both directions. It contends with the single-direction sessions for the camera and speaker, and nothing in this module arbitrates that — the host owns the slots.
 
-`CreateVideoSession` blocks until ICE gathering completes (can take up to a few seconds), so hosts must not call it on a latency-sensitive thread/event loop.
+`CreateVideoSession` / `CreateDuplexSession` block until ICE gathering completes (can take up to a few seconds), so hosts must not call them on a latency-sensitive thread/event loop.
 
 ### Key data flow
 
@@ -66,12 +67,12 @@ The capture half is env-configurable because it is what differs per robot, and t
 
 ### Session lifecycle
 
-Each session type keeps its live sessions in a package-level map in `internal/webrtc/` keyed by UUID. Video sessions self-close on connection failure. Cleanup happens both via `Delete*Session` calls and on WebRTC connection-state changes.
+Each session type keeps its live sessions in a package-level map in `internal/webrtc/` keyed by UUID. Video and duplex sessions self-close on connection failure. Cleanup happens both via `Delete*Session` calls and on WebRTC connection-state changes.
 
 ### Package structure
 
-- `cmd/lib/` — c-shared entry point (the module's only main package): exports `InitWorker`, `Create/DeleteAudioSession`, `Create/DeleteVideoSession`, `FreeString` over a JSON result envelope (`result.go`)
-- `internal/webrtc/` — Session types (audio, video) — the module's public surface
+- `cmd/lib/` — c-shared entry point (the module's only main package): exports `InitWorker`, `Create/DeleteAudioSession`, `Create/DeleteVideoSession`, `Create/DeleteDuplexSession`, `FreeString` over a JSON result envelope (`result.go`)
+- `internal/webrtc/` — Session types (audio, video, duplex) — the module's public surface
 - `internal/proc/` — GStreamer pipeline construction for video capture and audio processing
 - `internal/config/` — Environment-based configuration (AppConfig, GStreamerConfig)
 
@@ -95,6 +96,10 @@ Environment variables (or `.env` file in the working directory):
 | `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1280` / `720` | Capture size |
 | `VIDEO_FRAMERATE` | `60` | Capture framerate; must be one the sensor advertises |
 | `VIDEO_BITRATE` | `4000000` | H.264 bitrate |
+| `VIDEO_AUTO_EXPOSURE` / `VIDEO_EXPOSURE` | `0` / `330` | `0` = auto (UVC menu numbering); exposure in 100 µs units, applied only when manual |
+| `VIDEO_AUTO_WB` / `VIDEO_WB_TEMP` | `0` / `5200` | `1` = auto; temperature in K, applied only when manual (5200 measured in the lab) |
+| `VIDEO_GAIN` / `VIDEO_BRIGHTNESS` | `1` / `16` | Sensor gain / brightness |
+| `VIDEO_POWER_LINE_FREQ` | `1` | Flicker correction: `0` off, `1` 50 Hz, `2` 60 Hz |
 | `VIDEO_AUDIO_SRC` | (empty) | Whole GStreamer source element for the mic branch; empty drops the branch |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated STUN URLs |
 | `TURN_SERVERS` | (empty) | Comma-separated TURN URLs |
@@ -134,14 +139,14 @@ The repo is mid-migration from a standalone HTTP service to an embeddable sessio
 - gRPC velocity streaming (`internal/gateway`, `internal/pb`, `protos/`) and the whole `internal/transport` layer (gRPC control client + rosbridge WebSocket)
 - ROS video source mode, the RTP-pusher Unix-socket signaling, and the `VideoSourceType` enum
 - Gin HTTP layer (`internal/api/`) and the GitHub Actions workflows
-- Standalone binary (`cmd/main.go`), its Docker build targets (runtime stage, `build-service`), and `scripts/build-entrypoint.sh`
+- Standalone binary (`cmd/main.go`), its Docker build targets (runtime stage, `build-service`), `scripts/build-entrypoint.sh` (now `build-lib-entrypoint.sh`), and the `syncai-webrtc-worker.service` systemd unit
 
 The c-shared entry point is done: `cmd/lib` exports `InitWorker` / `Create*Session` / `Delete*Session` / `FreeString` (build with `go build -buildmode=c-shared -o dist/libsyncai_worker.so ./cmd/lib`, or `docker-compose up build-lib`). Contract for the Python host:
 
 - Every export returns a malloc'd JSON string (`{"ok":true,...}` or `{"ok":false,"error":"..."}`); the host must call `FreeString` on each one.
 - Call `InitWorker` once before any session function (repeat calls are no-op successes); calls before init return an error envelope.
 - `Create*Session` blocks until ICE gathering completes — call from a worker thread, not an async event loop.
-- `DeleteAudioSession` returns not-found for unknown IDs; `DeleteVideoSession` is idempotent (video sessions self-close on connection failure, so deleting an already-gone session succeeds).
+- `DeleteAudioSession` returns not-found for unknown IDs; `DeleteVideoSession` / `DeleteDuplexSession` are idempotent (these sessions self-close on connection failure, so deleting an already-gone session succeeds).
 - The `.so` cannot be unloaded (`dlclose` unsupported for Go c-shared) — restarting the worker means restarting the host process.
 
-Remaining legacy: `scripts/deploy.sh` and `syncai-webrtc-worker.service` (systemd install of the removed standalone binary) are currently non-functional and kept only as a reference until the FastAPI host owns deployment.
+Remaining legacy: `scripts/deploy.sh` (systemd install of the removed standalone binary) is currently non-functional and kept only as a reference until the FastAPI host owns deployment.
