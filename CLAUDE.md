@@ -56,13 +56,19 @@ GStreamer capture → RTP (ports 5006/5007) → VideoSession UDP listeners → W
 
 ### Video source
 
-The video source is the physical camera at `VIDEO_DEVICE`: creating a video session also spawns the GStreamer capture pipeline reading from it. There is no source-type switch — the former `VideoSourceType` enum was removed along with the ROS source mode.
+Creating a video (or duplex) session spawns a GStreamer pipeline whose source is chosen by `VIDEO_FORMAT`:
+
+- `mjpeg` (default) / `uyvy`: the physical camera at `VIDEO_DEVICE`, opened by `v4l2src` for the life of the session.
+- `rtpjpeg`: no device. RTP/JPEG on `127.0.0.1:VIDEO_RTP_IN_PORT` from the camera feeder (SyncAI-Robot-Camera-Feeder), which is then the camera's only opener so ROS can stream it at the same time. `udpsrc ! rtpjpegdepay ! nvjpegdec`, then the same encode half as `mjpeg`. No `extra-controls` (the feeder writes them) and no `rtpjitterbuffer` (loopback does not reorder; it would only add its 200 ms default latency).
+
+This is a format value, not a revival of the removed ROS source mode (`VideoSourceType` enum + RTP-pusher Unix-socket signaling): there is no signaling and no lifecycle coupling — the feeder sends to a fixed port and the session listens on it.
 
 The capture half is env-configurable because it is what differs per robot, and two of its failure modes are silent by default:
 
 - A resolution/framerate pair the sensor does not advertise (the AR0234 has no 30 fps mode at 640x480) fails as `not-negotiated`, *after* `SetState(PLAYING)` has already returned success. `VideoGStreamerPipeline` therefore polls the pipeline bus in a goroutine and logs ERROR/WARNING/EOS — polling rather than `Bus.AddWatch`, which would need a GLib main loop the Python host has no reason to run. It reports only; the host owns session teardown.
 - Teardown has to **block** on the NULL state transition (`BlockSetState`, not `SetState`), because that transition is what closes the V4L2 device. Dropping the pipeline's reference while the transition is still in flight leaks the camera fd for the life of the host process — and the host is the robot's backend, which cannot unload this library, so every later session negotiates nothing (`not-negotiated`) until the backend is restarted. Observed exactly once, from a session torn down while its pipeline was still coming up.
-- The sensor controls (`VIDEO_AUTO_WB` and friends) are written through `v4l2src extra-controls` at capture start. UVC control state persists in the camera firmware across open/close, so setting nothing means inheriting the last process's settings rather than getting sane defaults. The two auto switches have opposite polarity: `auto_exposure=0` is automatic, `white_balance_automatic=1` is automatic.
+- Under `rtpjpeg`, a feeder that is not running fails nothing — `udpsrc` just receives no packets. `udpsrc timeout` makes it post `GstUDPSrcTimeout` every 3 s instead, and the bus watcher logs that as `no RTP from the camera feeder`; that is the only signal a black view has.
+- The sensor controls (`VIDEO_AUTO_WB` and friends) are written through `v4l2src extra-controls` at capture start (the two `v4l2src` branches only). UVC control state persists in the camera firmware across open/close, so setting nothing means inheriting the last process's settings rather than getting sane defaults. The two auto switches have opposite polarity: `auto_exposure=0` is automatic, `white_balance_automatic=1` is automatic.
 - The microphone branch is off unless `VIDEO_AUDIO_SRC` is set. A missing element (the deployment container has no `alsasrc`) fails the *whole* pipeline string at parse time, so an unused audio branch takes the video down with it. The Opus track is still offered and simply carries nothing.
 
 ### Session lifecycle
@@ -92,7 +98,8 @@ Environment variables (or `.env` file in the working directory):
 | `AUDIO_VOLUME` | `1.0` | Playback gain for the WHIP branch; unity, and above 1.0 amplifies and clips |
 | `AUDIO_SINK` | `alsasink device=plughw:CARD=CD002AUDIO` | Whole GStreamer sink element for WHIP playback |
 | `VIDEO_DEVICE` | `/dev/syncai/camera0` | V4L2 capture node (a udev symlink, not `/dev/videoN`) |
-| `VIDEO_FORMAT` | `mjpeg` | Capture branch: `mjpeg` (nvjpegdec) or `uyvy` (videoconvert) |
+| `VIDEO_FORMAT` | `mjpeg` | Source branch: `mjpeg` (nvjpegdec), `uyvy` (videoconvert) or `rtpjpeg` (RTP/JPEG from the camera feeder) |
+| `VIDEO_RTP_IN_PORT` | `5008` | Port the `rtpjpeg` branch listens on (127.0.0.1); must match the feeder's `rtp_port` |
 | `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1280` / `720` | Capture size |
 | `VIDEO_FRAMERATE` | `60` | Capture framerate; must be one the sensor advertises |
 | `VIDEO_BITRATE` | `4000000` | H.264 bitrate |

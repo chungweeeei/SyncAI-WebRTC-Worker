@@ -72,15 +72,27 @@ type AudioConfig struct {
 // is why watchBus() in internal/proc exists.
 type VideoConfig struct {
 	// Device is the V4L2 node. The default is the udev symlink the robot
-	// workspace's 99-syncai-devices.rules creates, NOT /dev/videoN: the two
-	// identical cameras on this chassis swap minor numbers on replug.
+	// workspace's 99-syncai-devices.rules creates, NOT /dev/videoN: each
+	// camera exposes two nodes and probe order decides which minor numbers
+	// they get. Unused by the "rtpjpeg" branch, which opens no device.
 	Device string
 
-	// Format selects the capture branch: "mjpeg" (v4l2src -> nvjpegdec) or
-	// "uyvy" (v4l2src -> videoconvert). MJPEG is the default for the same
-	// reason the host-side publisher chose it -- UYVY at 1920x1200@60 is
-	// 2.2 Gbit/s, which is at the practical USB 3.0 ceiling.
+	// Format selects the capture branch:
+	//
+	//   - "mjpeg" (default): v4l2src -> nvjpegdec. MJPEG rather than raw for
+	//     the same reason the host-side publisher chose it -- UYVY at
+	//     1920x1200@60 is 2.2 Gbit/s, at the practical USB 3.0 ceiling.
+	//   - "uyvy": v4l2src -> videoconvert.
+	//   - "rtpjpeg": no device at all. RTP/JPEG on 127.0.0.1:RTPInPort from
+	//     the camera feeder (SyncAI-Robot-Camera-Feeder), which is then the
+	//     camera's only opener, so ROS can stream the same camera at the
+	//     same time. The JPEG bytes are the camera's own, so everything from
+	//     nvjpegdec on is identical to "mjpeg".
 	Format string
+
+	// RTPInPort is where the "rtpjpeg" branch listens for the camera feeder.
+	// It must match the feeder's rtp_port parameter.
+	RTPInPort int
 
 	Width     int
 	Height    int
@@ -88,7 +100,11 @@ type VideoConfig struct {
 	Bitrate   int
 
 	// Sensor controls, written through v4l2src's extra-controls at capture
-	// start. They are not decorative defaults: UVC control state lives in the
+	// start -- by the two v4l2src branches only. Under "rtpjpeg" the camera
+	// feeder owns the device and writes the same controls (with the same
+	// defaults) itself, so these are ignored.
+	//
+	// They are not decorative defaults: UVC control state lives in the
 	// camera firmware and survives open/close, so a session that sets nothing
 	// inherits whatever the last process left behind. The state found on this
 	// fleet was auto_exposure=Manual at 4 ms and manual white balance frozen
@@ -176,6 +192,7 @@ func NewGStreamerConfig() *GStreamerConfig {
 		VideoConfig: VideoConfig{
 			Device:    getEnv("VIDEO_DEVICE", "/dev/syncai/camera0"),
 			Format:    getEnv("VIDEO_FORMAT", "mjpeg"),
+			RTPInPort: getEnvInt("VIDEO_RTP_IN_PORT", 5008),
 			Width:     getEnvInt("VIDEO_WIDTH", 1280),
 			Height:    getEnvInt("VIDEO_HEIGHT", 720),
 			Framerate: getEnvInt("VIDEO_FRAMERATE", 60),

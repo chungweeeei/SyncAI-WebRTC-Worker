@@ -181,3 +181,16 @@ func TestAppConfig_Shutdown(t *testing.T) {
 		config.Shutdown()
 	})
 }
+
+func TestNewGStreamerConfig_RTPInPort(t *testing.T) {
+	os.Unsetenv("VIDEO_RTP_IN_PORT")
+	assert.Equal(t, 5008, NewGStreamerConfig().VideoConfig.RTPInPort,
+		"must match the camera feeder's default rtp_port")
+
+	os.Setenv("VIDEO_RTP_IN_PORT", "6008")
+	defer os.Unsetenv("VIDEO_RTP_IN_PORT")
+	assert.Equal(t, 6008, NewGStreamerConfig().VideoConfig.RTPInPort)
+
+	os.Setenv("VIDEO_RTP_IN_PORT", "0")
+	assert.Equal(t, 5008, NewGStreamerConfig().VideoConfig.RTPInPort)
+}

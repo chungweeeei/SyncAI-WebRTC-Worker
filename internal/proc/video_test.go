@@ -3,6 +3,7 @@ package proc
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"SyncAI-WebRTC-Worker/internal/config"
@@ -73,6 +74,35 @@ func TestBuildVideoPipelineString_UYVYUsesRawCaptureBranch(t *testing.T) {
 	assert.Contains(t, result, "video/x-raw,format=UYVY,width=640,height=480,framerate=60/1")
 	assert.Contains(t, result, "videoconvert")
 	assert.NotContains(t, result, "nvjpegdec")
+}
+
+// The camera feeder owns the device, so the rtpjpeg branch must not touch it:
+// no v4l2src, no extra-controls (the feeder wrote them), and no jitter buffer
+// adding its latency on loopback.
+func TestBuildVideoPipelineString_RTPJPEGReadsFromTheFeeder(t *testing.T) {
+	cfg := testVideoConfig()
+	cfg.Format = "rtpjpeg"
+	cfg.RTPInPort = 5008
+
+	result := BuildVideoPipelineString(5006, 5007, cfg)
+
+	assert.True(t, strings.HasPrefix(result, "udpsrc address=127.0.0.1 port=5008 "), result)
+	assert.Contains(t, result, `caps="application/x-rtp,media=video,encoding-name=JPEG,payload=26,clock-rate=90000"`)
+	assert.Contains(t, result, "timeout=3000000000")
+	assert.Contains(t, result, "! rtpjpegdepay ! queue")
+	assert.Contains(t, result, "leaky=downstream ! nvjpegdec ! video/x-raw(memory:NVMM) ! nvvidconv")
+	assert.Contains(t, result, "udpsink host=127.0.0.1 port=5006")
+	assert.NotContains(t, result, "v4l2src")
+	assert.NotContains(t, result, "extra-controls")
+	assert.NotContains(t, result, "rtpjitterbuffer")
+}
+
+func TestBuildVideoPipelineString_RTPJPEGFormatIsCaseInsensitive(t *testing.T) {
+	cfg := testVideoConfig()
+	cfg.Format = "RTPJPEG"
+	cfg.RTPInPort = 6008
+
+	assert.Contains(t, BuildVideoPipelineString(5006, 5007, cfg), "udpsrc address=127.0.0.1 port=6008")
 }
 
 // An IDR every half second, and never an interval of zero -- nvv4l2h264enc
