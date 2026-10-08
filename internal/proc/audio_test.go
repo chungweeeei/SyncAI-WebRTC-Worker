@@ -25,11 +25,15 @@ func TestBuildAudioPipelineString(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := config.AudioConfig{AudioVolume: tc.volume}
+			cfg := config.AudioConfig{
+				AudioVolume: tc.volume,
+				Sink:        "alsasink device=plughw:CARD=CD002AUDIO",
+			}
 			result := BuildAudioPipelineString(tc.port, cfg)
 
 			assert.Contains(t, result, fmt.Sprintf("port=%d", tc.port))
-			assert.Contains(t, result, "pulsesink")
+			assert.Contains(t, result, "alsasink device=plughw:CARD=CD002AUDIO")
+			assert.Contains(t, result, fmt.Sprintf("volume volume=%f", tc.volume))
 		})
 	}
 }
@@ -72,6 +76,7 @@ func TestNewAudioGStreamerPipelineWithFactory_SetStateError(t *testing.T) {
 
 	mockFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", gst.StatePlaying).Return(errors.New("failed to start"))
+	mockPipeline.On("BlockSetState", gst.StateNull).Return(nil)
 
 	// Act
 	pipeline, err := NewAudioGStreamerPipelineWithFactory(5004, config.AudioConfig{}, mockFactory)
@@ -79,6 +84,9 @@ func TestNewAudioGStreamerPipelineWithFactory_SetStateError(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	assert.Nil(t, pipeline)
+	// Same reason as the video pipeline's failed start: what go-gst finalizes
+	// above NULL keeps its device.
+	mockPipeline.AssertCalled(t, "BlockSetState", gst.StateNull)
 }
 
 func TestAudioGStreamerPipeline_Close(t *testing.T) {
@@ -88,8 +96,7 @@ func TestAudioGStreamerPipeline_Close(t *testing.T) {
 
 	mockFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", gst.StatePlaying).Return(nil)
-	mockPipeline.On("SetState", gst.StateNull).Return(nil)
-	mockPipeline.On("Unref").Return()
+	mockPipeline.On("BlockSetState", gst.StateNull).Return(nil)
 
 	pipeline, _ := NewAudioGStreamerPipelineWithFactory(5004, config.AudioConfig{}, mockFactory)
 
@@ -108,8 +115,7 @@ func TestAudioGStreamerPipeline_Close_Idempotent(t *testing.T) {
 
 	mockFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", gst.StatePlaying).Return(nil)
-	mockPipeline.On("SetState", gst.StateNull).Return(nil).Once()
-	mockPipeline.On("Unref").Return().Once()
+	mockPipeline.On("BlockSetState", gst.StateNull).Return(nil).Once()
 
 	pipeline, _ := NewAudioGStreamerPipelineWithFactory(5004, config.AudioConfig{}, mockFactory)
 
@@ -118,6 +124,8 @@ func TestAudioGStreamerPipeline_Close_Idempotent(t *testing.T) {
 	pipeline.Close()
 
 	// Assert
-	mockPipeline.AssertNumberOfCalls(t, "SetState", 2) // Playing + Null
-	mockPipeline.AssertNumberOfCalls(t, "Unref", 1)
+	// One SetState (Playing) on the way up; the way down goes through
+	// BlockSetState, which is what waits for the device to be released.
+	mockPipeline.AssertNumberOfCalls(t, "SetState", 1)
+	mockPipeline.AssertNumberOfCalls(t, "BlockSetState", 1)
 }

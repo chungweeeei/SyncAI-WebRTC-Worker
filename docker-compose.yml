@@ -1,16 +1,6 @@
 services:
-  # Runtime image (multi-stage build)
-  syncai-webrtc-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: syncai-webrtc-worker
-    restart: unless-stopped
-    ports:
-      - "18000:18000"
-
-  # Local development: build binary to ./dist/ using host volume
-  build-service:
+  # Build the c-shared library (libsyncai_worker.so + .h) to ./dist/
+  build-lib:
     build:
       context: .
       dockerfile: Dockerfile
@@ -24,4 +14,4 @@ services:
     environment:
       - LOCAL_UID=${UID:-1000}
       - LOCAL_GID=${GID:-1000}
-    entrypoint: ["/bin/bash", "/scripts/build-entrypoint.sh"]
+    entrypoint: ["/bin/bash", "/scripts/build-lib-entrypoint.sh"]

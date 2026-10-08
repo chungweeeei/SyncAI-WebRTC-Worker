@@ -1,22 +1,23 @@
 # SyncAI WebRTC Worker
 
-A Go-based WebRTC worker service for robot control and real-time audio/video streaming. Bridges WebRTC connections to robot systems via WHIP/WHEP protocols.
+A Go-based WebRTC session core for real-time robot audio/video streaming: WHIP-style audio ingestion, WHEP-style video egress, and a duplex session carrying both on one peer connection, with GStreamer handling media capture and processing.
+
+> **Architecture note** — this module is transitioning from a standalone HTTP
+> service to an embeddable library. The Gin HTTP layer has been removed; the
+> WHIP/WHEP endpoints will be served by a host application (Python/FastAPI)
+> that calls into the Go session core through a c-shared library
+> (`go build -buildmode=c-shared`).
 
 ## Features
 
-- **WebRTC WHIP/WHEP Support**
-  - WHIP (WebRTC-HTTP Ingestion Protocol) for control commands and audio input
-  - WHEP (WebRTC-HTTP Egress Protocol) for video output
-- **Robot Control**
-  - Velocity commands via gRPC streaming (`127.0.0.1:50052`)
-  - Real-time control messages via DataChannel
-  - Task/command execution system (Move, Head, TTS, Wait, StandUp, SitDown)
-- **Support Multiple Video Sources**
-  - Direct camera access (`/dev/syncai_camera`)
-  - ROS node integration (UDP/RTSP via Unix socket `/tmp/rtp_pusher.sock`)
+- **WebRTC Sessions (Pion)**
+  - Audio input session (WHIP-style): receives client audio tracks, processes them through GStreamer, and outputs RTP
+  - Video output session (WHEP-style): sends H264 video + Opus audio tracks captured from the physical camera
+  - Duplex session: camera out and browser microphone in over a single peer connection (one ICE/DTLS handshake)
+- **Video Source**
+  - Direct camera access (`VIDEO_DEVICE`, default `/dev/syncai/camera0`) via GStreamer (NVIDIA `nvv4l2h264enc` on supported hardware)
 - **Audio Processing**
-  - WHIP audio input
-  - GStreamer audio processing with volume control
+  - GStreamer audio pipeline with volume control
 
 ## Tech Stack
 
@@ -24,38 +25,38 @@ A Go-based WebRTC worker service for robot control and real-time audio/video str
 |----------|------------|
 | Language | Go 1.25 |
 | WebRTC | Pion WebRTC v4 |
-| Media Processing | GStreamer (go-gst) |
-| Web Framework | Gin |
-| RPC | gRPC + Protocol Buffers |
-| WebSocket | Gorilla WebSocket |
-| Containerization | Docker (multi-stage build) |
+| Media Processing | GStreamer 1.20 (go-gst v1.0.0, pinned) |
+| Containerization | Docker (Ubuntu 22.04 builder stage) |
 
 ## Requirements
 
 - Go 1.25+
-- GStreamer 1.0 development libraries
+- GStreamer 1.0 development libraries (build) and runtime plugins (run)
 - Docker (optional, for building)
+
+> **Do not upgrade `go-gst`.** The deployment target (Ubuntu 22.04 robot
+> container) ships GStreamer 1.20.3 with the NVIDIA Tegra elements built
+> against it. Every go-gst release after v1.0.0 calls a 1.22-only symbol, so a
+> library built against a newer GStreamer compiles fine and then fails to load
+> in the host with `undefined symbol: gst_debug_message_get_id`. v1.0.0 is
+> retracted upstream, so `go get -u` will try to move off it.
 
 ## Installation
 
-### Build with Docker
+### Build the shared library (for the Python/FastAPI host)
 
 ```bash
-# Build binary to ./dist/ (uses the builder stage, mirrors CI)
-docker-compose up build-service
+# Local build — outputs dist/libsyncai_worker.so and dist/libsyncai_worker.h
+# (requires the GStreamer dev libraries below)
+go build -buildmode=c-shared -o dist/libsyncai_worker.so ./cmd/lib
 
-# Build & run the runtime image locally (for smoke testing)
-docker-compose up syncai-webrtc-worker
+# Or via Docker (builds for Linux inside the builder stage)
+docker-compose up build-lib
 ```
 
-> The runtime image is intended for local smoke testing only. Production
-> deployments use the binary produced by `build-service` (or by CI) and run it
-> under systemd — see [Deployment](#deployment-systemd).
-
-### Local Build
+### GStreamer dependencies (Debian/Ubuntu)
 
 ```bash
-# Install GStreamer dependencies (Debian/Ubuntu)
 sudo apt-get install -y \
     pkg-config \
     libgstreamer1.0-dev \
@@ -63,9 +64,6 @@ sudo apt-get install -y \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
     gstreamer1.0-plugins-ugly
-
-# Build
-go build -o syncai-webrtc-worker cmd/main.go
 ```
 
 ## Configuration
@@ -77,165 +75,95 @@ Configure via environment variables or `.env` file:
 | `AUDIO_RTP_PORT` | Audio RTP port | `5004` |
 | `VIDEO_RTP_PORT` | Video RTP port | `5006` |
 | `VIDEO_AUDIO_RTP_PORT` | Video audio track RTP port | `5007` |
-| `AUDIO_VOLUME` | Audio volume (0.0-1.0) | `0.2` |
+| `AUDIO_VOLUME` | Playback gain for the WHIP branch; 1.0 is unity, above it amplifies and clips | `1.0` |
+| `AUDIO_SINK` | Complete GStreamer sink element the WHIP branch plays into | `alsasink device=plughw:CARD=CD002AUDIO` |
 | `STUN_SERVERS` | Comma-separated STUN server URLs | `stun:stun.l.google.com:19302` |
 | `TURN_SERVERS` | Comma-separated TURN server URLs | |
 | `TURN_USERNAME` | TURN authentication username | |
 | `TURN_PASSWORD` | TURN authentication password | |
+| `VIDEO_DEVICE` | V4L2 capture node | `/dev/syncai/camera0` |
+| `VIDEO_FORMAT` | Capture branch: `mjpeg` (nvjpegdec) or `uyvy` (videoconvert) | `mjpeg` |
+| `VIDEO_WIDTH` | Capture width | `1280` |
+| `VIDEO_HEIGHT` | Capture height | `720` |
+| `VIDEO_FRAMERATE` | Capture framerate (fps) | `60` |
+| `VIDEO_BITRATE` | H.264 bitrate (bps) | `4000000` |
+| `VIDEO_AUTO_EXPOSURE` | `0` = Auto Mode, `1` = Manual Mode (UVC menu numbering) | `0` |
+| `VIDEO_EXPOSURE` | Exposure time in 100 us units; applied only when `VIDEO_AUTO_EXPOSURE=1` | `330` |
+| `VIDEO_AUTO_WB` | `1` = automatic white balance, `0` = manual | `0` |
+| `VIDEO_WB_TEMP` | White balance temperature in K (2300–15000); applied only when `VIDEO_AUTO_WB=0` | `5200` |
+| `VIDEO_GAIN` | Sensor gain | `1` |
+| `VIDEO_BRIGHTNESS` | Sensor brightness | `16` |
+| `VIDEO_POWER_LINE_FREQ` | Flicker correction: `0` disabled, `1` = 50 Hz, `2` = 60 Hz | `1` |
+| `VIDEO_AUDIO_SRC` | Full GStreamer source element for the microphone branch; empty drops the branch | |
 
-Video source is auto-detected:
-- Uses camera mode if `/dev/syncai_camera` exists
-- Otherwise uses ROS mode
+The video source is the camera at `VIDEO_DEVICE`. The default is a udev symlink
+rather than `/dev/videoN` — where two identical cameras are fitted, minor
+numbers swap on replug.
 
-## Running
+`VIDEO_WIDTH` / `VIDEO_HEIGHT` / `VIDEO_FRAMERATE` must be a combination the
+sensor actually advertises (`v4l2-ctl -d $VIDEO_DEVICE --list-formats-ext`); the
+AR0234 offers 640x480 at 120/60 fps but **not** at 30. A pair it does not offer
+fails as a `not-negotiated` error on the GStreamer bus, which the pipeline's bus
+watcher logs — `SetState(PLAYING)` itself still returns success.
 
-```bash
-./syncai-webrtc-worker
-```
+The sensor controls are written through `v4l2src extra-controls` at capture
+start, and they are not decorative. UVC control state lives in the camera
+firmware and survives open/close, so a pipeline that sets nothing inherits
+whatever the last process left behind — on this fleet that was manual exposure
+at 4 ms and manual white balance frozen at 4000 K, an image so dark and so blue
+it reads as a broken encoder. Note the two auto switches disagree on polarity:
+`VIDEO_AUTO_EXPOSURE=0` and `VIDEO_AUTO_WB=1` both mean "automatic". Each
+manual value is gated by its auto switch — the driver rejects the write while
+the automatic mode is on, so the pipeline emits it only when that mode is off.
 
-The service starts on port `:18000`.
+`VIDEO_AUDIO_SRC` is empty by default because the robot has no capture device
+and the deployment container ships no `alsasrc` element; an audio branch that
+cannot be parsed fails the whole pipeline string and takes the video with it.
+The WHEP session still offers an Opus track when it is empty — the track simply
+carries no packets.
 
-## Deployment (systemd)
+## Session API
 
-The service is deployed as a systemd unit on the target device. The recommended
-flow is to consume the tarball produced by CI (`build.yml`, see [CI/CD](#cicd))
-and hand it to `scripts/deploy.sh`, which fully automates the install.
+The host application creates and tears down WebRTC sessions through the
+functions exported by `libsyncai_worker.so` (implemented in `cmd/lib`, backed
+by the `internal/webrtc` package). Every export returns a JSON string —
+`{"ok":true,...}` on success or `{"ok":false,"error":"..."}` on failure — that
+the host must release with `FreeString`:
 
-### Recommended: deploy from CI tarball
+| Export | Description |
+|--------|-------------|
+| `InitWorker()` | Initialize GStreamer + load config from env/`.env`; call once before anything else |
+| `CreateAudioSession(offerSDP)` | Create audio input session → `{"ok":true,"session_id":"...","answer_sdp":"..."}` |
+| `DeleteAudioSession(id)` | Close audio session (unknown ID → not-found error) |
+| `CreateVideoSession(offerSDP)` | Create video output session → same envelope as audio |
+| `DeleteVideoSession(id)` | Close video session (idempotent — deleting an already-gone session succeeds) |
+| `CreateDuplexSession(offerSDP)` | Create bidirectional session (camera out, mic in) → same envelope; offer must carry `m=video recvonly` + `m=audio sendrecv` |
+| `DeleteDuplexSession(id)` | Close duplex session (idempotent) |
+| `FreeString(ptr)` | Release a string returned by any export |
 
-1. Download the `syncai-webrtc-worker-<timestamp>.tar.gz` artifact from the
-   `Build` workflow run on GitHub Actions, and copy it to the target device.
-2. On the target device, run the deploy script:
+Notes for hosts:
 
-   ```bash
-   ./scripts/deploy.sh syncai-webrtc-worker-<timestamp>.tar.gz
-   ```
-
-   The script will:
-   - Stop the service if it is already running
-   - Extract the tarball to `/opt/syncai-webrtc-worker/`
-   - Install `syncai-webrtc-worker.service` into `/etc/systemd/system/`
-   - `daemon-reload`, `enable`, and `start` the service
-   - Verify the service is active and print status / log hints on failure
-
-3. (Optional) Drop a `.env` file at `/opt/syncai-webrtc-worker/.env` to override
-   defaults — the unit file picks it up via `EnvironmentFile=`.
-
-### Manual install (alternative)
-
-If you have a locally built binary instead of the CI tarball:
-
-```bash
-# 1. Build the binary
-docker-compose up build-service
-# Binary output: ./dist/syncai-webrtc-worker
-
-# 2. Copy artifacts to /opt/syncai-webrtc-worker/
-sudo mkdir -p /opt/syncai-webrtc-worker
-sudo cp dist/syncai-webrtc-worker /opt/syncai-webrtc-worker/
-sudo cp syncai-webrtc-worker.service /opt/syncai-webrtc-worker/
-sudo cp .env /opt/syncai-webrtc-worker/   # optional
-
-# 3. Install and start the systemd service
-sudo cp syncai-webrtc-worker.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable syncai-webrtc-worker
-sudo systemctl start syncai-webrtc-worker
-```
-
-### Managing the service
-
-```bash
-# Check status
-sudo systemctl status syncai-webrtc-worker
-
-# View logs (follow mode)
-journalctl -u syncai-webrtc-worker -f
-
-# Restart after updating binary
-sudo systemctl restart syncai-webrtc-worker
-```
-
-## API Endpoints
-
-All endpoints require `Content-Type: application/sdp` with SDP Offer in the request body.
-
-CORS is enabled for `https://*`, `http://*`, and `http://localhost:5173`.
-
-### Control (WHIP)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/control/whip` | Create WebRTC control session |
-| `DELETE` | `/control/whip/:id` | Close control session |
-
-### Audio (WHIP)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/audio/whip` | Create audio input session |
-| `DELETE` | `/audio/whip/:id` | Close audio session |
-
-### Video (WHEP)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/video/whep` | Create video output session |
-| `DELETE` | `/video/whep/:id` | Close video session |
-
-## DataChannel Message Format
-
-### Control Command (CONTROL)
-
-```json
-{
-  "action": "CONTROL",
-  "id": "uuid",
-  "timestamp": 1234567890,
-  "payload": {
-    "linear": { "x": 0.5, "y": 0, "z": 0 },
-    "angular": { "x": 0, "y": 0, "z": 0.1 }
-  }
-}
-```
-
-### Task Command (TASK)
-
-```json
-{
-  "action": "TASK",
-  "id": "uuid",
-  "timestamp": 1234567890,
-  "payload": {
-    "steps": [
-      { "id": "1", "name": "move", "type": "MOVE", "params": {...} },
-      { "id": "2", "name": "speak", "type": "TTS", "params": {...} }
-    ]
-  }
-}
-```
-
-Supported task types: `MOVE`, `HEAD`, `TTS`, `WAIT`, `STANDUP`, `SITDOWN`
+- `Create*Session` blocks until ICE gathering completes (up to a few seconds) —
+  call it from a worker thread, not an async event loop.
+- Video and duplex sessions clean themselves up on WebRTC connection failure,
+  which is why their delete calls treat a missing session as success.
+- The camera and the speaker are one device each, so a duplex session contends
+  with video/audio sessions for them. The library does not arbitrate this — the
+  host must ensure only one owner at a time.
+- A Go c-shared library cannot be unloaded — restarting the worker requires
+  restarting the host process.
 
 ## Project Structure
 
 ```
 ├── cmd/
-│   └── main.go              # Application entry point
+│   └── lib/                 # c-shared entry point (libsyncai_worker.so)
 ├── internal/
-│   ├── api/                 # HTTP API layer
-│   │   ├── router.go        # Route configuration
-│   │   └── handlers/        # Request handlers
 │   ├── config/              # Configuration management
-│   ├── gateway/             # Robot gateway (gRPC/Socket)
-│   ├── pb/                  # Protocol Buffers generated files
-│   ├── proc/                # GStreamer processors
-│   ├── transport/           # Transport layer (gRPC/WebSocket)
-│   └── webrtc/              # WebRTC session management
-│       └── actions/         # Action command handlers
-├── protos/                  # Protocol Buffers definitions
-├── scripts/                 # Build scripts
-├── Dockerfile
+│   ├── proc/                # GStreamer pipeline construction
+│   └── webrtc/              # WebRTC session management (public surface)
+├── scripts/                 # Build / legacy deploy scripts
+├── Dockerfile               # Build environment (builder stage only)
 └── docker-compose.yml
 ```
 
@@ -252,23 +180,16 @@ go test -v -race ./...
 go vet ./...
 ```
 
-## CI/CD
+Tests use interface-based mocks and run without GStreamer pipelines or robot
+hardware.
 
-GitHub Actions workflows:
+## Legacy Deployment (systemd)
 
-- **test.yml** — On PRs to `main`/`stage`/`dev`: runs `go vet` and
-  `go test -v -race ./...` inside the `syncai-webrtc-worker-base` container
-  image.
-- **build.yml** — On push to `main`/`stage`/`dev`: builds the binary, runs a
-  smoke test against port `18000`, then packages the binary together with
-  `syncai-webrtc-worker.service` into `syncai-webrtc-worker-<timestamp>.tar.gz`
-  and uploads it as a workflow artifact (retained 7 days). This tarball is what
-  `scripts/deploy.sh` consumes on the target device.
-- **publish-image.yml** — On push to `main`/`stage`/`dev` that touches the
-  `Dockerfile`: builds the `builder` stage and pushes it to GHCR as
-  `ghcr.io/<owner>/syncai-webrtc-worker-base:latest`. This is the **build base
-  image** used by `test.yml` and `build.yml` as their container — not a runtime
-  image for end users.
+`scripts/deploy.sh` dates from the standalone HTTP-service era (its
+`syncai-webrtc-worker.service` unit has since been removed): it installs a
+release tarball (binary + systemd unit) to `/opt/syncai-webrtc-worker/`. The standalone binary and its build
+targets have been removed, so this flow is currently non-functional; it will
+be replaced once the c-shared/FastAPI integration owns deployment.
 
 ## License
 

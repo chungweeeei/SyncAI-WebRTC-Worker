@@ -14,8 +14,9 @@ func (m *MockPipeline) SetState(state gst.State) error {
 	return args.Error(0)
 }
 
-func (m *MockPipeline) Unref() {
-	m.Called()
+func (m *MockPipeline) BlockSetState(state gst.State) error {
+	args := m.Called(state)
+	return args.Error(0)
 }
 
 type MockPipelineFactory struct {

@@ -1,8 +1,13 @@
 package webrtc
 
 import (
+	"github.com/google/uuid"
 	"github.com/pion/webrtc/v4"
 )
+
+func generateSessionID() string {
+	return uuid.New().String()
+}
 
 // PeerConnectionInterface abstracts webrtc.PeerConnection for testing
 type PeerConnectionInterface interface {

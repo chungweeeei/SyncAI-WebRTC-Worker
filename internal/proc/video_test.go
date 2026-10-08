@@ -5,11 +5,26 @@ import (
 	"fmt"
 	"testing"
 
+	"SyncAI-WebRTC-Worker/internal/config"
+
 	"github.com/go-gst/go-gst/gst"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// testVideoConfig mirrors the shipped defaults; tests that care about one
+// field override it rather than restating the whole struct.
+func testVideoConfig() config.VideoConfig {
+	return config.VideoConfig{
+		Device:    "/dev/syncai/camera0",
+		Format:    "mjpeg",
+		Width:     1280,
+		Height:    720,
+		Framerate: 60,
+		Bitrate:   4000000,
+	}
+}
 
 func TestBuildVideoPipelineString(t *testing.T) {
 	tests := []struct {
@@ -23,14 +38,52 @@ func TestBuildVideoPipelineString(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := BuildVideoPipelineString(tc.videoPort, tc.audioPort)
+			cfg := testVideoConfig()
+			cfg.AudioSource = "alsasrc device=hw:2,0 do-timestamp=true"
+
+			result := BuildVideoPipelineString(tc.videoPort, tc.audioPort, cfg)
 
 			assert.Contains(t, result, fmt.Sprintf("udpsink host=127.0.0.1 port=%d", tc.videoPort))
 			assert.Contains(t, result, fmt.Sprintf("udpsink host=127.0.0.1 port=%d", tc.audioPort))
-			assert.Contains(t, result, "v4l2src")
-			assert.Contains(t, result, "alsasrc")
+			assert.Contains(t, result, "v4l2src device=/dev/syncai/camera0")
+			assert.Contains(t, result, "alsasrc device=hw:2,0")
 		})
 	}
+}
+
+// The default is a video-only pipeline: the robot has no capture device and
+// the container has no alsasrc element, so an audio branch that is merely
+// unused would still fail the whole pipeline string at parse time.
+func TestBuildVideoPipelineString_OmitsAudioBranchByDefault(t *testing.T) {
+	result := BuildVideoPipelineString(5006, 5007, testVideoConfig())
+
+	assert.NotContains(t, result, "opusenc")
+	assert.NotContains(t, result, "port=5007")
+	assert.Contains(t, result, "image/jpeg,width=1280,height=720,framerate=60/1")
+	assert.Contains(t, result, "nvjpegdec")
+}
+
+func TestBuildVideoPipelineString_UYVYUsesRawCaptureBranch(t *testing.T) {
+	cfg := testVideoConfig()
+	cfg.Format = "uyvy"
+	cfg.Width, cfg.Height, cfg.Framerate = 640, 480, 60
+
+	result := BuildVideoPipelineString(5006, 5007, cfg)
+
+	assert.Contains(t, result, "video/x-raw,format=UYVY,width=640,height=480,framerate=60/1")
+	assert.Contains(t, result, "videoconvert")
+	assert.NotContains(t, result, "nvjpegdec")
+}
+
+// An IDR every half second, and never an interval of zero -- nvv4l2h264enc
+// takes the property in frames.
+func TestBuildVideoPipelineString_IDRIntervalTracksFramerate(t *testing.T) {
+	cfg := testVideoConfig()
+	cfg.Framerate = 30
+	assert.Contains(t, BuildVideoPipelineString(5006, 5007, cfg), "idrinterval=15")
+
+	cfg.Framerate = 1
+	assert.Contains(t, BuildVideoPipelineString(5006, 5007, cfg), "idrinterval=1")
 }
 
 func TestNewVideoGStreamerPipelineWithFactory_Success(t *testing.T) {
@@ -42,7 +95,7 @@ func TestNewVideoGStreamerPipelineWithFactory_Success(t *testing.T) {
 	mockPipeline.On("SetState", gst.StatePlaying).Return(nil)
 
 	// Act
-	pipeline, err := NewVideoGStreamerPipelineWithFactory(5000, 5001, mockFactory)
+	pipeline, err := NewVideoGStreamerPipelineWithFactory(5000, 5001, testVideoConfig(), mockFactory)
 
 	// Assert
 	require.NoError(t, err)
@@ -56,7 +109,7 @@ func TestNewVideoGStreamerPipelineWithFactory_FactoryError(t *testing.T) {
 	mockFactory.On("NewPipelineFromString", mock.Anything).Return(nil, errors.New("invalid pipeline"))
 
 	// Act
-	pipeline, err := NewVideoGStreamerPipelineWithFactory(5000, 5001, mockFactory)
+	pipeline, err := NewVideoGStreamerPipelineWithFactory(5000, 5001, testVideoConfig(), mockFactory)
 
 	// Assert
 	require.Error(t, err)
@@ -70,13 +123,17 @@ func TestNewVideoGStreamerPipelineWithFactory_SetStateError(t *testing.T) {
 
 	mockFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", gst.StatePlaying).Return(errors.New("failed"))
+	mockPipeline.On("BlockSetState", gst.StateNull).Return(nil)
 
 	// Act
-	pipeline, err := NewVideoGStreamerPipelineWithFactory(5000, 5001, mockFactory)
+	pipeline, err := NewVideoGStreamerPipelineWithFactory(5000, 5001, testVideoConfig(), mockFactory)
 
 	// Assert
 	require.Error(t, err)
 	assert.Nil(t, pipeline)
+	// A pipeline nobody holds is still a pipeline go-gst will finalize, and
+	// one finalized above NULL keeps the camera.
+	mockPipeline.AssertCalled(t, "BlockSetState", gst.StateNull)
 }
 
 func TestVideoGStreamerPipeline_Close(t *testing.T) {
@@ -86,10 +143,9 @@ func TestVideoGStreamerPipeline_Close(t *testing.T) {
 
 	mockFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", gst.StatePlaying).Return(nil)
-	mockPipeline.On("SetState", gst.StateNull).Return(nil)
-	mockPipeline.On("Unref").Return()
+	mockPipeline.On("BlockSetState", gst.StateNull).Return(nil)
 
-	pipeline, _ := NewVideoGStreamerPipelineWithFactory(5000, 5001, mockFactory)
+	pipeline, _ := NewVideoGStreamerPipelineWithFactory(5000, 5001, testVideoConfig(), mockFactory)
 
 	// Act
 	err := pipeline.Close()
@@ -99,6 +155,29 @@ func TestVideoGStreamerPipeline_Close(t *testing.T) {
 	assert.True(t, pipeline.IsClosed())
 }
 
+// The camera fd is released on the way down to NULL, and SetState only asks
+// for that transition. A teardown that does not wait for it leaves the device
+// open for the life of the host process -- which cannot unload this library,
+// so every later session negotiates nothing.
+func TestVideoGStreamerPipeline_Close_WaitsForNullState(t *testing.T) {
+	// Arrange
+	mockPipeline := new(MockPipeline)
+	mockFactory := new(MockPipelineFactory)
+
+	mockFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
+	mockPipeline.On("SetState", gst.StatePlaying).Return(nil)
+	mockPipeline.On("BlockSetState", gst.StateNull).Return(nil)
+
+	pipeline, _ := NewVideoGStreamerPipelineWithFactory(5000, 5001, testVideoConfig(), mockFactory)
+
+	// Act
+	require.NoError(t, pipeline.Close())
+
+	// Assert
+	mockPipeline.AssertCalled(t, "BlockSetState", gst.StateNull)
+	mockPipeline.AssertNotCalled(t, "SetState", gst.StateNull)
+}
+
 func TestVideoGStreamerPipeline_Close_Idempotent(t *testing.T) {
 	// Arrange
 	mockPipeline := new(MockPipeline)
@@ -106,15 +185,14 @@ func TestVideoGStreamerPipeline_Close_Idempotent(t *testing.T) {
 
 	mockFactory.On("NewPipelineFromString", mock.Anything).Return(mockPipeline, nil)
 	mockPipeline.On("SetState", gst.StatePlaying).Return(nil)
-	mockPipeline.On("SetState", gst.StateNull).Return(nil).Once()
-	mockPipeline.On("Unref").Return().Once()
+	mockPipeline.On("BlockSetState", gst.StateNull).Return(nil).Once()
 
-	pipeline, _ := NewVideoGStreamerPipelineWithFactory(5000, 5001, mockFactory)
+	pipeline, _ := NewVideoGStreamerPipelineWithFactory(5000, 5001, testVideoConfig(), mockFactory)
 
 	// Act
 	pipeline.Close()
 	pipeline.Close()
 
 	// Assert
-	mockPipeline.AssertNumberOfCalls(t, "Unref", 1)
+	mockPipeline.AssertNumberOfCalls(t, "BlockSetState", 1)
 }

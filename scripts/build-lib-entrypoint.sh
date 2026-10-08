@@ -15,4 +15,4 @@ fi
 mkdir -p /dist
 chown -R appuser:appgroup /dist
 
-exec gosu appuser go build -o dist/syncai-webrtc-worker cmd/main.go
+exec gosu appuser go build -buildmode=c-shared -o dist/libsyncai_worker.so ./cmd/lib

@@ -105,8 +105,9 @@ func (m *MockProcPipeline) SetState(state gst.State) error {
 	return args.Error(0)
 }
 
-func (m *MockProcPipeline) Unref() {
-	m.Called()
+func (m *MockProcPipeline) BlockSetState(state gst.State) error {
+	args := m.Called(state)
+	return args.Error(0)
 }
 
 // MockPipelineFactory mocks proc.PipelineFactory interface
@@ -116,7 +117,7 @@ type MockPipelineFactory struct {
 
 func (m *MockPipelineFactory) NewPipelineFromString(pipelineStr string) (interface {
 	SetState(gst.State) error
-	Unref()
+	BlockSetState(gst.State) error
 }, error) {
 	args := m.Called(pipelineStr)
 	if args.Get(0) == nil {

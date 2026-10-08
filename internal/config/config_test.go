@@ -61,7 +61,7 @@ func TestNewGStreamerConfig_DefaultValues(t *testing.T) {
 	assert.Equal(t, 5004, config.AudioRTPPort)
 	assert.Equal(t, 5006, config.VideoRTPPort)
 	assert.Equal(t, 5007, config.VideoAudioRTPPort)
-	assert.Equal(t, 0.2, config.AudioConfig.AudioVolume)
+	assert.Equal(t, 1.0, config.AudioConfig.AudioVolume)
 }
 
 func TestNewGStreamerConfig_CustomValues(t *testing.T) {
@@ -116,7 +116,7 @@ func TestNewGStreamerConfig_InvalidVolumeFallsBackToDefault(t *testing.T) {
 	config := NewGStreamerConfig()
 
 	// Assert
-	assert.Equal(t, 0.2, config.AudioConfig.AudioVolume)
+	assert.Equal(t, 1.0, config.AudioConfig.AudioVolume)
 }
 
 func TestNewGStreamerConfig_ZeroVolume(t *testing.T) {
@@ -180,27 +180,4 @@ func TestAppConfig_Shutdown(t *testing.T) {
 	assert.NotPanics(t, func() {
 		config.Shutdown()
 	})
-}
-
-func TestDetectVideoSource_CameraExists(t *testing.T) {
-	if _, err := os.Stat("/dev/syncai_camera"); os.IsNotExist(err) {
-		t.Skip("Skipping: /dev/syncai_camera does not exist")
-	}
-
-	result := detectVideoSource()
-	assert.Equal(t, VideoSourceCamera, result)
-}
-
-func TestDetectVideoSource_FallbackToROS(t *testing.T) {
-	if _, err := os.Stat("/dev/syncai_camera"); err == nil {
-		t.Skip("Skipping: /dev/syncai_camera exists")
-	}
-
-	result := detectVideoSource()
-	assert.Equal(t, VideoSourceROS, result)
-}
-
-func TestVideoSourceType_Constants(t *testing.T) {
-	assert.Equal(t, VideoSourceType("camera"), VideoSourceCamera)
-	assert.Equal(t, VideoSourceType("ros"), VideoSourceROS)
 }
