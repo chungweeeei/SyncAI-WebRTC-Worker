@@ -60,6 +60,7 @@ Creating a video (or duplex) session spawns a GStreamer pipeline whose source is
 
 - `mjpeg` (default) / `uyvy`: the physical camera at `VIDEO_DEVICE`, opened by `v4l2src` for the life of the session.
 - `rtpjpeg`: no device. RTP/JPEG on `127.0.0.1:VIDEO_RTP_IN_PORT` from the camera feeder (SyncAI-Robot-Camera-Feeder), which is then the camera's only opener so ROS can stream it at the same time. `udpsrc ! rtpjpegdepay ! nvjpegdec`, then the same encode half as `mjpeg`. No `extra-controls` (the feeder writes them) and no `rtpjitterbuffer` (loopback does not reorder; it would only add its 200 ms default latency).
+- `rtsp`: no device. A camera another computer encodes and serves over RTSP — the Lynx M20's, H.265 from its perception board at `VIDEO_RTSP_URL`. `rtspsrc protocols=tcp ! rtph265depay ! h265parse config-interval=-1 ! nvv4l2decoder`, then the same encode half. Re-encoded rather than passed through: the WHEP track is H.264, and with no PLI handling only our own encoder can promise an IDR every half second (the M20's GOP is 1 s). `config-interval=-1` is load-bearing: the M20 sends VPS/SPS/PPS only in the SDP, `nvv4l2decoder` ignores `codec_data`, and without the re-insertion it decodes nothing until EOS. An empty URL or an unknown `VIDEO_RTSP_CODEC` is refused before the pipeline is built (`validateVideoConfig`).
 
 This is a format value, not a revival of the removed ROS source mode (`VideoSourceType` enum + RTP-pusher Unix-socket signaling): there is no signaling and no lifecycle coupling — the feeder sends to a fixed port and the session listens on it.
 
@@ -98,8 +99,11 @@ Environment variables (or `.env` file in the working directory):
 | `AUDIO_VOLUME` | `1.0` | Playback gain for the WHIP branch; unity, and above 1.0 amplifies and clips |
 | `AUDIO_SINK` | `alsasink device=plughw:CARD=CD002AUDIO` | Whole GStreamer sink element for WHIP playback |
 | `VIDEO_DEVICE` | `/dev/syncai/camera0` | V4L2 capture node (a udev symlink, not `/dev/videoN`) |
-| `VIDEO_FORMAT` | `mjpeg` | Source branch: `mjpeg` (nvjpegdec), `uyvy` (videoconvert) or `rtpjpeg` (RTP/JPEG from the camera feeder) |
+| `VIDEO_FORMAT` | `mjpeg` | Source branch: `mjpeg` (nvjpegdec), `uyvy` (videoconvert), `rtpjpeg` (RTP/JPEG from the camera feeder) or `rtsp` (an RTSP stream, nvv4l2decoder) |
 | `VIDEO_RTP_IN_PORT` | `5008` | Port the `rtpjpeg` branch listens on (127.0.0.1); must match the feeder's `rtp_port` |
+| `VIDEO_RTSP_URL` | (empty) | Stream the `rtsp` branch plays; required by it |
+| `VIDEO_RTSP_CODEC` | `h265` | `h265` or `h264`; picks the depayloader and parser |
+| `VIDEO_RTSP_LATENCY_MS` | `50` | `rtspsrc` jitter buffer (its own default, 2000, is sized for the internet) |
 | `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1280` / `720` | Capture size |
 | `VIDEO_FRAMERATE` | `60` | Capture framerate; must be one the sensor advertises |
 | `VIDEO_BITRATE` | `4000000` | H.264 bitrate |

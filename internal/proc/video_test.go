@@ -105,6 +105,66 @@ func TestBuildVideoPipelineString_RTPJPEGFormatIsCaseInsensitive(t *testing.T) {
 	assert.Contains(t, BuildVideoPipelineString(5006, 5007, cfg), "udpsrc address=127.0.0.1 port=6008")
 }
 
+// The M20's cameras: an RTSP stream decoded by nvv4l2decoder into the shared
+// H.264 half. No device, no sensor controls, and the parser re-inserting the
+// parameter sets the stream sends only in its SDP.
+func TestBuildVideoPipelineString_RTSPDecodesIntoTheSharedEncoder(t *testing.T) {
+	cfg := testVideoConfig()
+	cfg.Format = "rtsp"
+	cfg.RTSPURL = "rtsp://10.21.31.103:8554/video1"
+	cfg.RTSPCodec = "h265"
+	cfg.RTSPLatency = 50
+
+	result := BuildVideoPipelineString(5006, 5007, cfg)
+
+	assert.True(t, strings.HasPrefix(result,
+		`rtspsrc location="rtsp://10.21.31.103:8554/video1" protocols=tcp latency=50 `), result)
+	assert.Contains(t, result, "! rtph265depay ! h265parse config-interval=-1 ! queue")
+	assert.Contains(t, result, "leaky=downstream ! nvv4l2decoder ! video/x-raw(memory:NVMM) ! nvvidconv")
+	assert.Contains(t, result, "nvv4l2h264enc")
+	assert.Contains(t, result, "udpsink host=127.0.0.1 port=5006")
+	assert.NotContains(t, result, "v4l2src")
+	assert.NotContains(t, result, "extra-controls")
+	assert.NotContains(t, result, "nvjpegdec")
+}
+
+func TestBuildVideoPipelineString_RTSPH264UsesTheH264Parser(t *testing.T) {
+	cfg := testVideoConfig()
+	cfg.Format = "RTSP"
+	cfg.RTSPURL = "rtsp://cam/stream"
+	cfg.RTSPCodec = "H264"
+
+	result := BuildVideoPipelineString(5006, 5007, cfg)
+
+	assert.Contains(t, result, "! rtph264depay ! h264parse config-interval=-1 ! queue")
+	assert.NotContains(t, result, "h265")
+}
+
+// A configuration that cannot work is refused before any pipeline exists,
+// rather than reported on a bus only the log reads.
+func TestNewVideoGStreamerPipelineWithFactory_RTSPConfigRefused(t *testing.T) {
+	for name, mutate := range map[string]func(*config.VideoConfig){
+		"no url":      func(c *config.VideoConfig) { c.RTSPURL = "" },
+		"bad codec":   func(c *config.VideoConfig) { c.RTSPCodec = "vp8" },
+		"empty codec": func(c *config.VideoConfig) { c.RTSPCodec = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := testVideoConfig()
+			cfg.Format = "rtsp"
+			cfg.RTSPURL = "rtsp://cam/stream"
+			cfg.RTSPCodec = "h265"
+			mutate(&cfg)
+			mockFactory := new(MockPipelineFactory)
+
+			pipeline, err := NewVideoGStreamerPipelineWithFactory(5000, 5001, cfg, mockFactory)
+
+			require.Error(t, err)
+			assert.Nil(t, pipeline)
+			mockFactory.AssertNotCalled(t, "NewPipelineFromString", mock.Anything)
+		})
+	}
+}
+
 // An IDR every half second, and never an interval of zero -- nvv4l2h264enc
 // takes the property in frames.
 func TestBuildVideoPipelineString_IDRIntervalTracksFramerate(t *testing.T) {

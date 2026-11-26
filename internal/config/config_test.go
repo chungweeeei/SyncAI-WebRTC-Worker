@@ -194,3 +194,22 @@ func TestNewGStreamerConfig_RTPInPort(t *testing.T) {
 	os.Setenv("VIDEO_RTP_IN_PORT", "0")
 	assert.Equal(t, 5008, NewGStreamerConfig().VideoConfig.RTPInPort)
 }
+
+func TestNewGStreamerConfig_RTSP(t *testing.T) {
+	for _, k := range []string{"VIDEO_RTSP_URL", "VIDEO_RTSP_CODEC", "VIDEO_RTSP_LATENCY_MS"} {
+		os.Unsetenv(k)
+		defer os.Unsetenv(k)
+	}
+	v := NewGStreamerConfig().VideoConfig
+	assert.Equal(t, "", v.RTSPURL, "no default: a URL names one robot's camera")
+	assert.Equal(t, "h265", v.RTSPCodec)
+	assert.Equal(t, 50, v.RTSPLatency)
+
+	os.Setenv("VIDEO_RTSP_URL", "rtsp://10.21.31.103:8554/video2")
+	os.Setenv("VIDEO_RTSP_CODEC", "h264")
+	os.Setenv("VIDEO_RTSP_LATENCY_MS", "0")
+	v = NewGStreamerConfig().VideoConfig
+	assert.Equal(t, "rtsp://10.21.31.103:8554/video2", v.RTSPURL)
+	assert.Equal(t, "h264", v.RTSPCodec)
+	assert.Equal(t, 0, v.RTSPLatency, "zero is no jitter buffer, not a mistake")
+}

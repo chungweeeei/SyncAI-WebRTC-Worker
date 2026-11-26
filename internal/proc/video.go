@@ -62,7 +62,7 @@ const rtpInTimeout = 3 * time.Second
 // BuildVideoPipelineString builds the capture pipeline feeding the WHEP
 // session's two RTP listeners.
 //
-// The source is one of three branches (see config.VideoConfig.Format); all of
+// The source is one of four branches (see config.VideoConfig.Format); all of
 // them hand the shared encode half below NVMM-ready frames.
 //
 // The encoder properties are the ones the robot workspace's host-side
@@ -84,6 +84,38 @@ func BuildVideoPipelineString(videoPort, audioPort int, cfg config.VideoConfig) 
 
 	var source string
 	switch {
+	case strings.EqualFold(cfg.Format, "rtsp"):
+		// A camera another computer encodes (the M20's perception board),
+		// decoded here and re-encoded below; see config.VideoConfig.Format
+		// for why not a passthrough.
+		//
+		// protocols=tcp: interleaved on the RTSP connection, so no UDP ports
+		// to open or lose, and a reordering-free link for the short latency.
+		//
+		// config-interval=-1 is not optional. The M20's stream sends its
+		// VPS/SPS/PPS only in the SDP, never in-band: its IDRs arrive bare.
+		// h265parse passes the SDP's copy on as codec_data, and nvv4l2decoder
+		// ignores that, so without the parser re-inserting the parameter
+		// sets before every IDR the decoder opens, takes every frame and
+		// decodes none ("No valid frames decoded"), with nothing on the bus
+		// until end of stream. Measured on robot01, 2026-11-26.
+		//
+		// Unlike rtpjpeg this source is off the host, on the robot's internal
+		// LAN; the URL is the operator's configuration, not something a
+		// remote peer can supply.
+		//
+		// The leaky queue sits before the decoder, as in the other branches:
+		// a compressed frame is the cheaper one to drop.
+		depay, parse := "rtph265depay", "h265parse"
+		if strings.EqualFold(cfg.RTSPCodec, "h264") {
+			depay, parse = "rtph264depay", "h264parse"
+		}
+		source = fmt.Sprintf(
+			"rtspsrc location=\"%s\" protocols=tcp latency=%d drop-on-latency=true "+
+				"! %s ! %s config-interval=-1 "+
+				"! queue max-size-buffers=3 max-size-time=0 max-size-bytes=0 leaky=downstream "+
+				"! nvv4l2decoder ! video/x-raw(memory:NVMM) ",
+			cfg.RTSPURL, cfg.RTSPLatency, depay, parse)
 	case strings.EqualFold(cfg.Format, "rtpjpeg"):
 		// The camera feeder owns the device and has already written the
 		// sensor controls, so there is no v4l2src and no extra-controls here.
@@ -152,6 +184,25 @@ func BuildVideoPipelineString(videoPort, audioPort int, cfg config.VideoConfig) 
 	return pipeline
 }
 
+// validateVideoConfig refuses the configurations that are certain to fail.
+//
+// Refused here, as a Create*Session error the host can show, because the
+// pipeline would otherwise report them only on the bus after PLAYING has
+// returned success: an rtspsrc with no location posts its error to a watcher
+// that only logs, and the browser gets a session with no frames in it.
+func validateVideoConfig(cfg config.VideoConfig) error {
+	if !strings.EqualFold(cfg.Format, "rtsp") {
+		return nil
+	}
+	if cfg.RTSPURL == "" {
+		return fmt.Errorf("VIDEO_FORMAT=rtsp needs VIDEO_RTSP_URL")
+	}
+	if !strings.EqualFold(cfg.RTSPCodec, "h265") && !strings.EqualFold(cfg.RTSPCodec, "h264") {
+		return fmt.Errorf("VIDEO_RTSP_CODEC must be h265 or h264, not %q", cfg.RTSPCodec)
+	}
+	return nil
+}
+
 // NewVideoGStreamerPipeline uses the default PipelineFactory.
 func NewVideoGStreamerPipeline(videoPort, audioPort int, cfg config.VideoConfig) (*VideoGStreamerPipeline, error) {
 	return NewVideoGStreamerPipelineWithFactory(videoPort, audioPort, cfg, defaultFactory)
@@ -159,6 +210,10 @@ func NewVideoGStreamerPipeline(videoPort, audioPort int, cfg config.VideoConfig)
 
 // NewVideoGStreamerPipelineWithFactory allows injecting a PipelineFactory (for tests).
 func NewVideoGStreamerPipelineWithFactory(videoPort, audioPort int, cfg config.VideoConfig, factory PipelineFactory) (*VideoGStreamerPipeline, error) {
+	if err := validateVideoConfig(cfg); err != nil {
+		return nil, err
+	}
+
 	pipelineStr := BuildVideoPipelineString(videoPort, audioPort, cfg)
 	log.Printf("video pipeline: %s", pipelineStr)
 

@@ -17,6 +17,7 @@ A Go-based WebRTC session core for real-time robot audio/video streaming: WHIP-s
 - **Video Source**
   - Direct camera access (`VIDEO_DEVICE`, default `/dev/syncai/camera0`) via GStreamer (NVIDIA `nvv4l2h264enc` on supported hardware)
   - Or RTP/JPEG from the camera feeder (`VIDEO_FORMAT=rtpjpeg`), so ROS can stream the same camera at the same time
+  - Or an RTSP stream another computer serves (`VIDEO_FORMAT=rtsp`, the Lynx M20's cameras), decoded by `nvv4l2decoder` and re-encoded to H.264
 - **Audio Processing**
   - GStreamer audio pipeline with volume control
 
@@ -83,8 +84,11 @@ Configure via environment variables or `.env` file:
 | `TURN_USERNAME` | TURN authentication username | |
 | `TURN_PASSWORD` | TURN authentication password | |
 | `VIDEO_DEVICE` | V4L2 capture node | `/dev/syncai/camera0` |
-| `VIDEO_FORMAT` | Source branch: `mjpeg` (v4l2src → nvjpegdec), `uyvy` (v4l2src → videoconvert) or `rtpjpeg` (RTP/JPEG from the camera feeder → nvjpegdec) | `mjpeg` |
+| `VIDEO_FORMAT` | Source branch: `mjpeg` (v4l2src → nvjpegdec), `uyvy` (v4l2src → videoconvert) `rtpjpeg` (RTP/JPEG from the camera feeder → nvjpegdec) or `rtsp` (an RTSP stream → nvv4l2decoder) | `mjpeg` |
 | `VIDEO_RTP_IN_PORT` | Port the `rtpjpeg` branch listens on (127.0.0.1); must match the feeder's `rtp_port` | `5008` |
+| `VIDEO_RTSP_URL` | Stream the `rtsp` branch plays (e.g. `rtsp://10.21.31.103:8554/video1` on the M20); required by `rtsp` | |
+| `VIDEO_RTSP_CODEC` | What the RTSP stream carries: `h265` or `h264` | `h265` |
+| `VIDEO_RTSP_LATENCY_MS` | `rtspsrc` jitter buffer in ms (its own default is 2000) | `50` |
 | `VIDEO_WIDTH` | Capture width | `1280` |
 | `VIDEO_HEIGHT` | Capture height | `720` |
 | `VIDEO_FRAMERATE` | Capture framerate (fps) | `60` |
@@ -122,6 +126,30 @@ In this mode:
 - A feeder that is not running is not an error — `udpsrc` simply receives
   nothing. The bus watcher logs `no RTP from the camera feeder` every 3 s while
   that lasts, so a black view has a log line explaining it.
+
+### A camera served over RTSP (`VIDEO_FORMAT=rtsp`)
+
+The Lynx M20's two cameras are not on this host: its perception board
+(`10.21.31.103`) encodes them as H.265, 1280x720 at 30 fps, and serves them as
+`rtsp://10.21.31.103:8554/video1` and `/video2`. The branch is
+`rtspsrc protocols=tcp ! rtph265depay ! h265parse config-interval=-1 !
+nvv4l2decoder`, and everything from `nvvidconv` on is the same as `mjpeg`.
+
+- **Re-encoded, not passed through.** The WHEP track is H.264, browsers'
+  H.265 WebRTC support is uneven, and the worker never answers a PLI — so only
+  an encoder this pipeline owns can give a joining browser an IDR within half a
+  second. The M20's own GOP is one second. The decode and the encode are both
+  the Orin's hardware blocks.
+- **`config-interval=-1` is required.** The M20 sends its VPS/SPS/PPS only in
+  the SDP, never in-band. `nvv4l2decoder` ignores the parser's `codec_data`, so
+  without the parser re-inserting them before every IDR it decodes nothing
+  (`No valid frames decoded before end of stream`, and only at EOS).
+- `VIDEO_FRAMERATE` should be the stream's rate (30 on the M20): it sets the
+  encoder's IDR interval. `VIDEO_DEVICE` and the sensor controls are ignored.
+- `VIDEO_FORMAT=rtsp` without `VIDEO_RTSP_URL`, or a codec other than
+  `h265` / `h264`, is refused by `CreateVideoSession` before a pipeline is
+  built. An unreachable stream is not: it is a `rtspsrc` ERROR in the log
+  (the `video pipeline:` line before it names the URL).
 
 `VIDEO_WIDTH` / `VIDEO_HEIGHT` / `VIDEO_FRAMERATE` must be a combination the
 sensor actually advertises (`v4l2-ctl -d $VIDEO_DEVICE --list-formats-ext`); the

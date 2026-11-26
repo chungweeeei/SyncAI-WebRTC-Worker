@@ -88,11 +88,38 @@ type VideoConfig struct {
 	//     camera's only opener, so ROS can stream the same camera at the
 	//     same time. The JPEG bytes are the camera's own, so everything from
 	//     nvjpegdec on is identical to "mjpeg".
+	//   - "rtsp": no device either. A camera some other computer already
+	//     encodes and serves over RTSP -- the Lynx M20's two cameras, which
+	//     its perception board streams as H.265 and which no process on this
+	//     host can open. Decoded by nvv4l2decoder and re-encoded by the same
+	//     H.264 half as every other branch, rather than passed through: the
+	//     WHEP track is H.264 (browsers' H.265 WebRTC support is patchy), and
+	//     the worker never answers a PLI, so only an encoder we own can
+	//     promise a joining browser an IDR within half a second -- the M20's
+	//     own GOP is a second, and not ours to set.
 	Format string
 
 	// RTPInPort is where the "rtpjpeg" branch listens for the camera feeder.
 	// It must match the feeder's rtp_port parameter.
 	RTPInPort int
+
+	// RTSPURL is the stream the "rtsp" branch plays, e.g.
+	// rtsp://10.21.31.103:8554/video1 on the M20. No default: a URL names one
+	// camera on one robot, and a guessed one would be a black view that
+	// looks like a working session. Format "rtsp" with this empty is refused
+	// before a pipeline is built.
+	RTSPURL string
+
+	// RTSPCodec is what the RTSP stream carries: "h265" (the default, the
+	// M20's) or "h264". It picks the depayloader and parser only; the
+	// decoder (nvv4l2decoder) takes either.
+	RTSPCodec string
+
+	// RTSPLatency is rtspsrc's jitter buffer in milliseconds. rtspsrc's own
+	// default is 2000, sized for the internet; the M20's stream crosses one
+	// switch over TCP, which neither loses nor reorders, so the buffer only
+	// adds delay to the operator's view.
+	RTSPLatency int
 
 	Width     int
 	Height    int
@@ -193,17 +220,22 @@ func NewGStreamerConfig() *GStreamerConfig {
 			Device:    getEnv("VIDEO_DEVICE", "/dev/syncai/camera0"),
 			Format:    getEnv("VIDEO_FORMAT", "mjpeg"),
 			RTPInPort: getEnvInt("VIDEO_RTP_IN_PORT", 5008),
-			Width:     getEnvInt("VIDEO_WIDTH", 1280),
-			Height:    getEnvInt("VIDEO_HEIGHT", 720),
-			Framerate: getEnvInt("VIDEO_FRAMERATE", 60),
-			Bitrate:   getEnvInt("VIDEO_BITRATE", 4000000),
+			RTSPURL:   getEnv("VIDEO_RTSP_URL", ""),
+			RTSPCodec: getEnv("VIDEO_RTSP_CODEC", "h265"),
+			// AllowZero: 0 is a valid jitter buffer (none) on a link that
+			// never reorders.
+			RTSPLatency: getEnvIntAllowZero("VIDEO_RTSP_LATENCY_MS", 50),
+			Width:       getEnvInt("VIDEO_WIDTH", 1280),
+			Height:      getEnvInt("VIDEO_HEIGHT", 720),
+			Framerate:   getEnvInt("VIDEO_FRAMERATE", 60),
+			Bitrate:     getEnvInt("VIDEO_BITRATE", 4000000),
 
 			// getEnvIntAllowZero, not getEnvInt: 0 is a meaningful value for
 			// three of these (Auto Mode, manual white balance, flicker
 			// correction disabled) and the "<= 0 falls back" rule would make
 			// them unsettable.
-			AutoExposure:     getEnvIntAllowZero("VIDEO_AUTO_EXPOSURE", 0),
-			ExposureTime:     getEnvIntAllowZero("VIDEO_EXPOSURE", 330),
+			AutoExposure: getEnvIntAllowZero("VIDEO_AUTO_EXPOSURE", 0),
+			ExposureTime: getEnvIntAllowZero("VIDEO_EXPOSURE", 330),
 			// AWB off, and a fixed 5200 K, measured on the robot rather
 			// than guessed. The camera's AWB settles distinctly blue under
 			// the lab's fluorescent lighting: sampling a white wall and a
