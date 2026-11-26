@@ -87,6 +87,8 @@ Configure via environment variables or `.env` file:
 | `VIDEO_FORMAT` | Source branch: `mjpeg` (v4l2src → nvjpegdec), `uyvy` (v4l2src → videoconvert) `rtpjpeg` (RTP/JPEG from the camera feeder → nvjpegdec) or `rtsp` (an RTSP stream → nvv4l2decoder) | `mjpeg` |
 | `VIDEO_RTP_IN_PORT` | Port the `rtpjpeg` branch listens on (127.0.0.1); must match the feeder's `rtp_port` | `5008` |
 | `VIDEO_RTSP_URL` | Stream the `rtsp` branch plays (e.g. `rtsp://10.21.31.103:8554/video1` on the M20); required by `rtsp` | |
+| `VIDEO_RTSP_URL_2` | A second camera for `rtsp`, sent as a second video track to a client that offers a second video m-line (see below) | |
+| `VIDEO_RTP_PORT_2` | Port the second camera's pipeline sends its RTP to | `5010` |
 | `VIDEO_RTSP_CODEC` | What the RTSP stream carries: `h265` or `h264` | `h265` |
 | `VIDEO_RTSP_LATENCY_MS` | `rtspsrc` jitter buffer in ms (its own default is 2000) | `50` |
 | `VIDEO_WIDTH` | Capture width | `1280` |
@@ -150,6 +152,29 @@ nvv4l2decoder`, and everything from `nvvidconv` on is the same as `mjpeg`.
   `h265` / `h264`, is refused by `CreateVideoSession` before a pipeline is
   built. An unreachable stream is not: it is a `rtspsrc` ERROR in the log
   (the `video pipeline:` line before it names the URL).
+
+#### Both cameras in one session (`VIDEO_RTSP_URL_2`)
+
+With `VIDEO_RTSP_URL_2` set, a video session sends the second camera as a
+**second H.264 track on the same peer connection** — one ICE/DTLS handshake,
+and the console decides which of the two is the large view and which the
+inset, swapping them without renegotiating.
+
+- **The client asks for it** by offering two video m-lines
+  (`addTransceiver("video", {direction: "recvonly"})` twice). The first video
+  m-line, in the offer's order, gets `VIDEO_RTSP_URL` and the second
+  `VIDEO_RTSP_URL_2`, wherever the audio line sits. Tell them apart by that
+  order (`transceiver.mid`), not by track id.
+- **A client that offers one video m-line** (today's console) gets the first
+  camera alone, and the second pipeline is never started: an answer cannot add
+  an m-line, so there is nowhere to send it.
+- **The two cameras are two pipelines**, not two branches of one: an ERROR
+  from either `rtspsrc` stops the pipeline it is in, and the rear camera
+  dropping out must not take the front one with it. The microphone branch
+  (`VIDEO_AUDIO_SRC`) rides on the first only.
+- Same codec, latency, size and bitrate as the first camera, because either
+  can be the large view. Measured on robot01: both M20 streams transcoded side
+  by side at 30 fps with no errors.
 
 `VIDEO_WIDTH` / `VIDEO_HEIGHT` / `VIDEO_FRAMERATE` must be a combination the
 sensor actually advertises (`v4l2-ctl -d $VIDEO_DEVICE --list-formats-ext`); the

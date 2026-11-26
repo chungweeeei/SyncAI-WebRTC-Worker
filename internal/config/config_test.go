@@ -213,3 +213,19 @@ func TestNewGStreamerConfig_RTSP(t *testing.T) {
 	assert.Equal(t, "h264", v.RTSPCodec)
 	assert.Equal(t, 0, v.RTSPLatency, "zero is no jitter buffer, not a mistake")
 }
+
+func TestNewGStreamerConfig_SecondCamera(t *testing.T) {
+	os.Unsetenv("VIDEO_RTSP_URL_2")
+	os.Unsetenv("VIDEO_RTP_PORT_2")
+	c := NewGStreamerConfig()
+	assert.Equal(t, "", c.VideoConfig.RTSPURL2, "one camera unless a second is named")
+	assert.Equal(t, 5010, c.VideoRTPPort2)
+
+	os.Setenv("VIDEO_RTSP_URL_2", "rtsp://10.21.31.103:8554/video2")
+	os.Setenv("VIDEO_RTP_PORT_2", "6010")
+	defer os.Unsetenv("VIDEO_RTSP_URL_2")
+	defer os.Unsetenv("VIDEO_RTP_PORT_2")
+	c = NewGStreamerConfig()
+	assert.Equal(t, "rtsp://10.21.31.103:8554/video2", c.VideoConfig.RTSPURL2)
+	assert.Equal(t, 6010, c.VideoRTPPort2)
+}

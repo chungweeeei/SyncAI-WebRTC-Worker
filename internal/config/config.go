@@ -110,6 +110,16 @@ type VideoConfig struct {
 	// before a pipeline is built.
 	RTSPURL string
 
+	// RTSPURL2 is a second camera for the "rtsp" branch -- the M20's other
+	// one -- sent as a second video track of the same WHEP session, so the
+	// console can show both (picture in picture) over one ICE/DTLS
+	// handshake. Empty, the default, is one camera and today's behaviour.
+	// It is sent only to a client whose offer has a second video m-line: an
+	// offer with one gets RTSPURL alone, and the second pipeline never runs.
+	// Same codec, latency, size and bitrate as the first, because the
+	// console can swap which of the two is the large view.
+	RTSPURL2 string
+
 	// RTSPCodec is what the RTSP stream carries: "h265" (the default, the
 	// M20's) or "h264". It picks the depayloader and parser only; the
 	// decoder (nvv4l2decoder) takes either.
@@ -175,9 +185,13 @@ type GStreamerConfig struct {
 	AudioRTPPort      int
 	VideoRTPPort      int
 	VideoAudioRTPPort int
-	AudioConfig       AudioConfig
-	VideoConfig       VideoConfig
-	ICEServers        []webrtc.ICEServer
+	// VideoRTPPort2 is where the second camera's pipeline sends its RTP
+	// (VideoConfig.RTSPURL2). 5010 by default: clear of the other three
+	// and of the camera feeder's 5008.
+	VideoRTPPort2 int
+	AudioConfig   AudioConfig
+	VideoConfig   VideoConfig
+	ICEServers    []webrtc.ICEServer
 }
 
 func NewGStreamerConfig() *GStreamerConfig {
@@ -212,6 +226,7 @@ func NewGStreamerConfig() *GStreamerConfig {
 		AudioRTPPort:      audioPort,
 		VideoRTPPort:      videoPort,
 		VideoAudioRTPPort: videoAudioPort,
+		VideoRTPPort2:     getEnvInt("VIDEO_RTP_PORT_2", 5010),
 		AudioConfig: AudioConfig{
 			AudioVolume: audioVolume,
 			Sink:        getEnv("AUDIO_SINK", "alsasink device=plughw:CARD=CD002AUDIO"),
@@ -221,6 +236,7 @@ func NewGStreamerConfig() *GStreamerConfig {
 			Format:    getEnv("VIDEO_FORMAT", "mjpeg"),
 			RTPInPort: getEnvInt("VIDEO_RTP_IN_PORT", 5008),
 			RTSPURL:   getEnv("VIDEO_RTSP_URL", ""),
+			RTSPURL2:  getEnv("VIDEO_RTSP_URL_2", ""),
 			RTSPCodec: getEnv("VIDEO_RTSP_CODEC", "h265"),
 			// AllowZero: 0 is a valid jitter buffer (none) on a link that
 			// never reorders.

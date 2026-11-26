@@ -3,9 +3,11 @@ package webrtc
 import (
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/pion/rtp"
+	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v4"
 
 	"SyncAI-WebRTC-Worker/internal/config"
@@ -20,8 +22,17 @@ type VideoSession struct {
 	audioTrack       *webrtc.TrackLocalStaticRTP
 	videoUDPListener *net.UDPConn
 	audioUDPListener *net.UDPConn
-	mu               sync.Mutex
-	closed           bool
+
+	// The second camera (VideoConfig.RTSPURL2), nil unless the session sends
+	// one. Its own pipeline, not a branch of the first: an ERROR from either
+	// rtspsrc stops the whole pipeline it is in, and the rear camera
+	// dropping out must not take the front one with it.
+	GStreamer2        *proc.VideoGStreamerPipeline
+	videoTrack2       *webrtc.TrackLocalStaticRTP
+	videoUDPListener2 *net.UDPConn
+
+	mu     sync.Mutex
+	closed bool
 }
 
 var (
@@ -32,6 +43,7 @@ var (
 type VideoSessionOptions struct {
 	VideoRTPPort    int
 	AudioRTPPort    int
+	VideoRTPPort2   int // the second camera's RTP; unused without RTSPURL2
 	VideoConfig     config.VideoConfig
 	PCFactory       PeerConnectionFactory
 	PipelineFactory proc.PipelineFactory
@@ -94,6 +106,28 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		return "", "", fmt.Errorf("failed to add audio track: %w", err)
 	}
 
+	// The second camera, added last so that the offer's first video m-line
+	// is the first camera whatever the client's m-line order: Pion hands
+	// each offered m-line the first unused transceiver of its kind, in the
+	// order the tracks were added. Only when the offer has room for it --
+	// an answerer cannot add an m-line, so a track the offer has no line
+	// for is never sent, and its pipeline would decode and encode a camera
+	// for nobody.
+	secondCamera := wantsSecondCamera(opts.VideoConfig, offerSDP)
+	if secondCamera {
+		videoTrack2, err := webrtc.NewTrackLocalStaticRTP(videoCodec, "video2", "gstreamer-video2")
+		if err != nil {
+			pc.Close()
+			return "", "", fmt.Errorf("failed to create second video track: %w", err)
+		}
+		session.videoTrack2 = videoTrack2
+
+		if _, err := pc.AddTrack(videoTrack2); err != nil {
+			pc.Close()
+			return "", "", fmt.Errorf("failed to add second video track: %w", err)
+		}
+	}
+
 	if err := session.startRTPListener(opts.VideoRTPPort, session.videoTrack, &session.videoUDPListener, "video"); err != nil {
 		pc.Close()
 		return "", "", err
@@ -114,6 +148,21 @@ func CreateVideoSession(offerSDP string, opts VideoSessionOptions) (string, stri
 		return "", "", fmt.Errorf("failed to start GStreamer: %w", err)
 	}
 	session.GStreamer = gst
+
+	if secondCamera {
+		if err := session.startRTPListener(opts.VideoRTPPort2, session.videoTrack2, &session.videoUDPListener2, "video2"); err != nil {
+			session.Close()
+			return "", "", err
+		}
+
+		// No audio port: the microphone branch rides on the first pipeline.
+		gst2, err := proc.NewVideoGStreamerPipelineWithFactory(opts.VideoRTPPort2, 0, secondCameraConfig(opts.VideoConfig), pipelineFactory)
+		if err != nil {
+			session.Close()
+			return "", "", fmt.Errorf("failed to start GStreamer for the second camera: %w", err)
+		}
+		session.GStreamer2 = gst2
+	}
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		fmt.Printf("Video session %s: %s\n", sessionID, state.String())
@@ -228,6 +277,12 @@ func (s *VideoSession) Close() {
 	if s.GStreamer != nil {
 		s.GStreamer.Close()
 	}
+	if s.GStreamer2 != nil {
+		s.GStreamer2.Close()
+	}
+	if s.videoUDPListener2 != nil {
+		s.videoUDPListener2.Close()
+	}
 	if s.videoUDPListener != nil {
 		s.videoUDPListener.Close()
 	}
@@ -257,4 +312,46 @@ func DeleteVideoSession(sessionID string) error {
 
 	session.Close()
 	return nil
+}
+
+// wantsSecondCamera reports whether a session should send the second camera:
+// one is configured (an "rtsp" source with RTSPURL2) and the client's offer
+// has a second video m-line to receive it on.
+func wantsSecondCamera(cfg config.VideoConfig, offerSDP string) bool {
+	if !strings.EqualFold(cfg.Format, "rtsp") || cfg.RTSPURL2 == "" {
+		return false
+	}
+	return countVideoMLines(offerSDP) >= 2
+}
+
+// countVideoMLines counts the offer's video m-lines that can carry media.
+// An inactive one (a stopped transceiver, or a rejected line kept to hold
+// its place) cannot. An offer that does not parse counts as one: the
+// session then goes on as it always did, and SetRemoteDescription reports
+// the real problem.
+func countVideoMLines(offerSDP string) int {
+	var desc sdp.SessionDescription
+	if err := desc.Unmarshal([]byte(offerSDP)); err != nil {
+		return 1
+	}
+
+	n := 0
+	for _, m := range desc.MediaDescriptions {
+		if m.MediaName.Media != "video" {
+			continue
+		}
+		if _, inactive := m.Attribute("inactive"); inactive {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// secondCameraConfig is the first camera's configuration pointed at the
+// second stream, with no microphone branch.
+func secondCameraConfig(cfg config.VideoConfig) config.VideoConfig {
+	cfg.RTSPURL = cfg.RTSPURL2
+	cfg.AudioSource = ""
+	return cfg
 }

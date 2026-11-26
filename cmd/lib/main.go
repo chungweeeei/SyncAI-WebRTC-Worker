@@ -107,10 +107,11 @@ func CreateVideoSession(offerSDP *C.char) *C.char {
 	}
 
 	opts := rtc.VideoSessionOptions{
-		VideoRTPPort: cfg.VideoRTPPort,
-		AudioRTPPort: cfg.VideoAudioRTPPort,
-		VideoConfig:  cfg.VideoConfig,
-		ICEServers:   cfg.ICEServers,
+		VideoRTPPort:  cfg.VideoRTPPort,
+		AudioRTPPort:  cfg.VideoAudioRTPPort,
+		VideoRTPPort2: cfg.VideoRTPPort2,
+		VideoConfig:   cfg.VideoConfig,
+		ICEServers:    cfg.ICEServers,
 	}
 
 	sessionID, answerSDP, err := rtc.CreateVideoSession(C.GoString(offerSDP), opts)
